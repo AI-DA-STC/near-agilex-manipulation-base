@@ -1,0 +1,9 @@
+[submodule "external/agx_arm_ros"]
+	path = external/agx_arm_ros
+	url = https://github.com/agilexrobotics/agx_arm_ros.git
+[submodule "external/Grounded-SAM-2"]
+	path = external/Grounded-SAM-2
+	url = https://github.com/IDEA-Research/Grounded-SAM-2.git
+[submodule "external/anygrasp_sdk"]
+	path = external/anygrasp_sdk
+	url = https://github.com/graspnet/anygrasp_sdk.git
