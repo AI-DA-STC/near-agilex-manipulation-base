@@ -10,3 +10,6 @@
 [submodule "external/easy_handeye2"]
 	path = external/easy_handeye2
 	url = https://github.com/marcoesposito1988/easy_handeye2.git
+[submodule "nero-camera-calibration"]
+	path = nero-camera-calibration
+	url = https://github.com/rarlyx/nero-camera-calibration.git
