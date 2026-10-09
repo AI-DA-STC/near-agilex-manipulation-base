@@ -1,0 +1,6 @@
+diff --git a/external/Grounded-SAM-2 b/external/Grounded-SAM-2
+--- a/external/Grounded-SAM-2
++++ b/external/Grounded-SAM-2
+@@ -1 +1 @@
+-Subproject commit b7a9c29f196edff0eb54dbe14588d7ae5e3dde28
++Subproject commit b7a9c29f196edff0eb54dbe14588d7ae5e3dde28-dirty

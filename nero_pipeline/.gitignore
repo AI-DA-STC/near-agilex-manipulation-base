@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+# editor / backup / scratch files produced by the sed edits and checkpoints used during development
+*.bak
+*.bak_*
+*.orig
+*.new
+*.swp
+*~
+# runtime data (never commit)
+*.npy
+*.log
+nero_pipeline_logs/
+grasp_runs/
+/tmp/
+# local environment
+.DS_Store

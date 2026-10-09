@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>nero_mtc_task</name>
+  <version>0.0.1</version>
+  <description>MoveIt Task Constructor pick-and-place task for the Nero arm, using real perception-detected grasp/target poses (from contact_graspnet_ros + target_pose_ros + pose_transform_ros) instead of MTC's built-in automatic pose sampling.</description>
+  <maintainer email="you@example.com">liyun</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>moveit_msgs</depend>
+  <depend>moveit_task_constructor_core</depend>
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <exec_depend>agx_arm_moveit</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""
+Bridges ROS2 topics to the standalone Grounded-SAM-2 inference script
+running in the `grounded_sam2` conda env (see scripts/grounded_sam2_inference.py).
+
+Runs in the normal ROS2 system Python - never imports torch/transformers/etc
+directly, to keep the heavy perception dependencies fully isolated. Calls
+the conda env's own python interpreter as a subprocess, passing the current
+camera frame as a temp file and reading the result back the same way.
+
+Segments TWO objects per trigger - a "source" (the object to pick up) and
+a "target" (where it gets placed relative to), each its own text prompt,
+run as two independent inference calls against the same captured frame.
+Only the source mask is meant to be fed to a grasp detector
+(contact_graspnet_ros) - the target's pose is read directly off its own
+point cloud downstream, no grasp planning involved for it.
+
+Exposes:
+    /gsam2/segment (std_srvs/Trigger) - segments both source_prompt and
+    target_prompt (ROS parameters) against the current camera frame.
+
+Publishes:
+    /gsam2/mask_source, /gsam2/annotated_source
+    /gsam2/mask_target, /gsam2/annotated_target
+    (all sensor_msgs/Image; masks are mono8, 255 = detected object)
+"""
+
+import json
+import os
+import subprocess
+import tempfile
+
+import cv2
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from std_srvs.srv import Trigger
+from cv_bridge import CvBridge
+
+
+class GSam2SegmentationNode(Node):
+    def __init__(self):
+        super().__init__("gsam2_segmentation_node")
+
+        self.declare_parameter("camera_topic", "/topcam/color/image_raw")
+        self.declare_parameter("source_prompt", "carrot.")
+        self.declare_parameter("target_prompt", "plate.")
+        self.declare_parameter("conda_env_name", "grounded_sam2")
+        self.declare_parameter(
+            "gsam2_repo_dir",
+            os.path.expanduser("~/near-agilex-manipulation-base/external/Grounded-SAM-2"),
+        )
+        self.declare_parameter(
+            "inference_script",
+            os.path.expanduser("~/gsam2_ros_scripts/grounded_sam2_inference.py"),
+        )
+        self.declare_parameter("box_threshold", 0.25)
+        self.declare_parameter("text_threshold", 0.3)
+
+        self.bridge = CvBridge()
+        self._latest_frame = None
+
+        camera_topic = self.get_parameter("camera_topic").value
+        self.create_subscription(Image, camera_topic, self._image_cb, 10)
+
+        self.create_service(Trigger, "gsam2/segment", self._segment_cb)
+
+        self.mask_source_pub = self.create_publisher(Image, "/gsam2/mask_source", 10)
+        self.annotated_source_pub = self.create_publisher(Image, "/gsam2/annotated_source", 10)
+        self.mask_target_pub = self.create_publisher(Image, "/gsam2/mask_target", 10)
+        self.annotated_target_pub = self.create_publisher(Image, "/gsam2/annotated_target", 10)
+
+        self.get_logger().info(
+            f"Ready. Subscribed to '{camera_topic}'. "
+            f"Call /gsam2/segment (std_srvs/Trigger) to segment both "
+            f"source_prompt='{self.get_parameter('source_prompt').value}' and "
+            f"target_prompt='{self.get_parameter('target_prompt').value}'."
+        )
+
+    def _image_cb(self, msg):
+        self._latest_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+
+    def _run_segmentation(self, prompt, frame):
+        """
+        Runs one Grounded-SAM-2 inference call for a single prompt against
+        the given frame. Returns (success, message, mask_cv2, annotated_cv2,
+        result_data) - mask/annotated/result_data are None on failure.
+        """
+        conda_env_name = self.get_parameter("conda_env_name").value
+        gsam2_repo_dir = os.path.expanduser(self.get_parameter("gsam2_repo_dir").value)
+        inference_script = os.path.expanduser(self.get_parameter("inference_script").value)
+        box_threshold = self.get_parameter("box_threshold").value
+        text_threshold = self.get_parameter("text_threshold").value
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            image_path = os.path.join(tmpdir, "input.jpg")
+            cv2.imwrite(image_path, frame)
+
+            cmd = [
+                "conda", "run", "-n", conda_env_name, "--no-capture-output",
+                "python", inference_script,
+                "--image", image_path,
+                "--text_prompt", prompt,
+                "--output_dir", tmpdir,
+                "--box_threshold", str(box_threshold),
+                "--text_threshold", str(text_threshold),
+            ]
+
+            self.get_logger().info(f"Running inference: prompt='{prompt}'")
+            result = subprocess.run(
+                cmd, cwd=gsam2_repo_dir, capture_output=True, text=True, timeout=120
+            )
+
+            if result.returncode != 0:
+                self.get_logger().error(f"Inference failed for '{prompt}':\n{result.stderr}")
+                return False, f"Inference script failed: {result.stderr[-500:]}", None, None, None
+
+            result_json_path = os.path.join(tmpdir, "result.json")
+            if not os.path.exists(result_json_path):
+                return False, "Inference ran but produced no result.json", None, None, None
+
+            with open(result_json_path) as f:
+                result_data = json.load(f)
+
+            if not result_data.get("detected", False):
+                return False, f"No detection for prompt '{prompt}'", None, None, None
+
+            mask = cv2.imread(os.path.join(tmpdir, "mask.png"), cv2.IMREAD_GRAYSCALE)
+            annotated = cv2.imread(os.path.join(tmpdir, "annotated.jpg"))
+            return True, "ok", mask, annotated, result_data
+
+    def _segment_cb(self, request, response):
+        if self._latest_frame is None:
+            response.success = False
+            response.message = "No camera frame received yet"
+            return response
+
+        source_prompt = self.get_parameter("source_prompt").value
+        target_prompt = self.get_parameter("target_prompt").value
+        # Use one shared frame for both, so source and target come from the
+        # exact same instant rather than two frames grabbed moments apart.
+        frame = self._latest_frame.copy()
+
+        src_ok, src_msg, src_mask, src_annotated, src_data = self._run_segmentation(
+            source_prompt, frame
+        )
+        if not src_ok:
+            response.success = False
+            response.message = f"Source ('{source_prompt}') failed: {src_msg}"
+            return response
+
+        tgt_ok, tgt_msg, tgt_mask, tgt_annotated, tgt_data = self._run_segmentation(
+            target_prompt, frame
+        )
+        if not tgt_ok:
+            response.success = False
+            response.message = f"Target ('{target_prompt}') failed: {tgt_msg}"
+            return response
+
+        self.mask_source_pub.publish(self.bridge.cv2_to_imgmsg(src_mask, encoding="mono8"))
+        self.annotated_source_pub.publish(self.bridge.cv2_to_imgmsg(src_annotated, encoding="bgr8"))
+        self.mask_target_pub.publish(self.bridge.cv2_to_imgmsg(tgt_mask, encoding="mono8"))
+        self.annotated_target_pub.publish(self.bridge.cv2_to_imgmsg(tgt_annotated, encoding="bgr8"))
+
+        response.success = True
+        response.message = (
+            f"Source: '{src_data['label']}' (box={src_data['box_score']:.3f}, "
+            f"mask={src_data['mask_score']:.3f}). "
+            f"Target: '{tgt_data['label']}' (box={tgt_data['box_score']:.3f}, "
+            f"mask={tgt_data['mask_score']:.3f})."
+        )
+        return response
+
+
+def main():
+    rclpy.init()
+    node = GSam2SegmentationNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

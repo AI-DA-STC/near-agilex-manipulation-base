@@ -1,0 +1,20 @@
+parameters:
+  name: nero_eye_to_hand_calib
+  calibration_type: eye_on_base
+  robot_base_frame: base_link
+  robot_effector_frame: gripper_base
+  tracking_base_frame: topcam_link
+  tracking_marker_frame: marker_0
+  freehand_robot_movement: true
+  move_group_namespace: /
+  move_group: manipulator
+transform:
+  translation:
+    x: -0.37
+    y: -0.03
+    z: 0.88
+  rotation:
+    x: 0.000000000000
+    y: 0.707106781187
+    z: 0.000000000000
+    w: 0.707106781187

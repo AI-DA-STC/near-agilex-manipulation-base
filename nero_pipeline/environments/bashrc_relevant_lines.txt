@@ -1,0 +1,6 @@
+119:export LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64:$LD_LIBRARY_PATH
+127:export CUDA_HOME=/usr/local/cuda-12.6
+129:# >>> conda initialize >>>
+142:# <<< conda initialize <<<
+144:export ROS_DOMAIN_ID=7
+145:alias STOP='~/nero_pipeline_launch/stop_arm.sh'

@@ -1,0 +1,433 @@
+diff --git a/charuco_detector/include/charuco_detector/charuco_detector.hpp b/charuco_detector/include/charuco_detector/charuco_detector.hpp
+index 1c9eb3c..ac222cf 100644
+--- a/charuco_detector/include/charuco_detector/charuco_detector.hpp
++++ b/charuco_detector/include/charuco_detector/charuco_detector.hpp
+@@ -1,15 +1,6 @@
+ #ifndef CHARUCO_DETECTOR_HPP_
+ #define CHARUCO_DETECTOR_HPP_
+ 
+-/**\file charuco_detector.hpp
+- * \brief Detector of ChArUco patterns
+- *
+- * @version 1.0
+- * @author Carlos Miguel Correia da Costa
+- */
+-
+-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>   <includes>   <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+-// std includes
+ #include <algorithm>
+ #include <memory>
+ #include <string>
+@@ -18,18 +9,18 @@
+ #include <iostream>
+ 
+ #include <ini/ini.h>
+-// #include <INIReader.h>
+ #include <unistd.h>
+-// external libs includes
+ #include <Eigen/Core>
+ #include <Eigen/Geometry>
+ #include <opencv2/core.hpp>
+ #include <opencv2/core/eigen.hpp>
+-#include <opencv2/aruco/charuco.hpp>
++#include <opencv2/objdetect/aruco_dictionary.hpp>
++#include <opencv2/objdetect/aruco_detector.hpp>
++#include <opencv2/objdetect/aruco_board.hpp>
++#include <opencv2/objdetect/charuco_detector.hpp>
+ #include <opencv2/calib3d.hpp>
+ #include <opencv2/imgproc.hpp>
+ 
+-// ros2 includes
+ #include "rclcpp/rclcpp.hpp"
+ #include <cv_bridge/cv_bridge.h>
+ #include <geometry_msgs/msg/pose_stamped.hpp>
+@@ -39,21 +30,11 @@
+ #include <image_transport/image_transport.h>
+ #include <tf2_ros/static_transform_broadcaster.h>
+ #include <tf2_ros/transform_broadcaster.h>
+-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>   </includes>  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+-
+-
+-// namespace charuco_detector {
+ 
+-class ChArUcoDetector : public rclcpp::Node 
+-{ 
++class ChArUcoDetector : public rclcpp::Node
++{
+ public:
+-  /*!
+-   * Constructor.
+-   */
+ 	ChArUcoDetector();
+-  /*!
+-   * Destructor.
+-   */
+ 	~ChArUcoDetector();
+ 
+ 	virtual void setupConfigurationFromParameterServer();
+@@ -74,6 +55,8 @@ private:
+ 	cv::Ptr<cv::aruco::DetectorParameters> detector_parameters_;
+ 	cv::Ptr<cv::aruco::Dictionary> dictionary_;
+ 	cv::Ptr<cv::aruco::CharucoBoard> board_;
++	cv::Ptr<cv::aruco::ArucoDetector> aruco_detector_;
++	cv::Ptr<cv::aruco::CharucoDetector> charuco_detector_;
+ 	double squares_sides_size_m_;
+ 	double markers_sides_size_m_;
+ 	int number_of_bits_for_markers_sides_;
+@@ -111,7 +94,7 @@ private:
+ 	std::string camera_info_topic_;
+ 	std::string image_results_publish_topic_;
+ 	std::string charuco_pose_publish_topic_;
+-	
++
+ 	std::vector<double> distortion;
+ 	std::vector<double> intrinsic;
+ 	sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info_;
+@@ -125,15 +108,11 @@ private:
+ 	std::shared_ptr<image_transport::ImageTransport> image_transport_results_ptr_;
+ 	image_transport::Publisher image_results_publisher_;
+ 	rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_subscriber_;
+-	// ros::Subscriber camera_info_subscriber_;
+ 	rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr charuco_pose_publisher_;
+-	// ros::Publisher charuco_pose_publisher_;
+ 	std::unique_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
+ 	std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+ 	geometry_msgs::msg::TransformStamped transform_stamped_;
+ 	bool transform_stamped_valid_;
+ };
+ 
+-// }
+-
+-#endif //CHARUCO_DETECTOR_HPP_
+\ No newline at end of file
++#endif //CHARUCO_DETECTOR_HPP_
+diff --git a/charuco_detector/src/charuco_detector.cpp b/charuco_detector/src/charuco_detector.cpp
+index 2b57709..627d8ea 100644
+--- a/charuco_detector/src/charuco_detector.cpp
++++ b/charuco_detector/src/charuco_detector.cpp
+@@ -1,24 +1,13 @@
+-/**\file charuco_detector.cpp
+- * \brief Detector of ChArUco patterns
+- *
+- * @version 1.0
+- * @author Carlos Miguel Correia da Costa
+- */
+-
+-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>   <includes>   <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+ #include "charuco_detector/charuco_detector.hpp"
+-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>   </includes>  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+-
+ 
+-// namespace charuco_detector {
+-ChArUcoDetector::ChArUcoDetector() 
++ChArUcoDetector::ChArUcoDetector()
+ 	: Node("charuco_detector")
+ 	{
+-  		RCLCPP_INFO(get_logger(), "[ChArUcoDetector] Node started.");
++		RCLCPP_INFO(get_logger(), "[ChArUcoDetector] Node started.");
+ 	static_tf_broadcaster_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*this);
+ 	tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+ 	file_path_ = __FILE__;
+-	file_path_.erase(file_path_.size() - 24);  // find package location
++	file_path_.erase(file_path_.size() - 24);
+ 	file_path_ = file_path_ + std::string("config/camera_calibration/camera_calibration.ini");
+ 
+ 	declare_parameter("charuco_parameters.adaptiveThreshWinSizeMin", 3);
+@@ -31,7 +20,6 @@ ChArUcoDetector::ChArUcoDetector()
+ 	declare_parameter("charuco_parameters.minCornerDistanceRate", 0.05);
+ 	declare_parameter("charuco_parameters.minDistanceToBorder", 3);
+ 	declare_parameter("charuco_parameters.minMarkerDistanceRate", 0.05);
+-	//private_node_handle_->param("charuco/cornerRefinementMethod", detector_parameters_->cornerRefinementMethod, 0);
+ 	declare_parameter("charuco_parameters.cornerRefinementWinSize", 5);
+ 	declare_parameter("charuco_parameters.cornerRefinementMaxIterations", 30);
+ 	declare_parameter("charuco_parameters.cornerRefinementMinAccuracy", 0.1);
+@@ -52,20 +40,16 @@ ChArUcoDetector::ChArUcoDetector()
+ 
+ 	declare_parameter("function_parameters.use_median_blur", false);
+ 	declare_parameter("function_parameters.median_blur_k_size", 3);
+-
+ 	declare_parameter("function_parameters.use_dynamic_range", true);
+-
+ 	declare_parameter("function_parameters.use_bilateral_filter", false);
+ 	declare_parameter("function_parameters.bilateral_filter_pixel_neighborhood", 5);
+ 	declare_parameter("function_parameters.bilateral_filter_sigma_color", 100.0);
+ 	declare_parameter("function_parameters.bilateral_filter_sigma_space", 100.0);
+ 	declare_parameter("function_parameters.bilateral_filter_border_type", (int)cv::BORDER_DEFAULT);
+-
+ 	declare_parameter("function_parameters.use_clahe", true);
+ 	declare_parameter("function_parameters.clahe_clip_limit", 4.0);
+ 	declare_parameter("function_parameters.clahe_size_x", 2);
+ 	declare_parameter("function_parameters.clahe_size_y", 2);
+-
+ 	declare_parameter("function_parameters.use_adaptive_threshold", false);
+ 	declare_parameter("function_parameters.adaptive_threshold_max_value", 255.0);
+ 	declare_parameter("function_parameters.adaptive_threshold_method", (int)cv::ADAPTIVE_THRESH_GAUSSIAN_C);
+@@ -86,9 +70,9 @@ ChArUcoDetector::ChArUcoDetector()
+ 	}
+ 
+ ChArUcoDetector::~ChArUcoDetector() {}
+-void ChArUcoDetector::setupConfigurationFromParameterServer() {
+ 
+-	detector_parameters_ = cv::aruco::DetectorParameters::create();
++void ChArUcoDetector::setupConfigurationFromParameterServer() {
++	detector_parameters_ = cv::makePtr<cv::aruco::DetectorParameters>();
+ 	get_parameter("charuco_parameters.adaptiveThreshWinSizeMin", detector_parameters_->adaptiveThreshWinSizeMin);
+ 	get_parameter("charuco_parameters.adaptiveThreshWinSizeMax", detector_parameters_->adaptiveThreshWinSizeMax);
+ 	get_parameter("charuco_parameters.adaptiveThreshWinSizeStep", detector_parameters_->adaptiveThreshWinSizeStep);
+@@ -99,7 +83,6 @@ void ChArUcoDetector::setupConfigurationFromParameterServer() {
+ 	get_parameter("charuco_parameters.minCornerDistanceRate", detector_parameters_->minCornerDistanceRate);
+ 	get_parameter("charuco_parameters.minDistanceToBorder", detector_parameters_->minDistanceToBorder);
+ 	get_parameter("charuco_parameters.minMarkerDistanceRate", detector_parameters_->minMarkerDistanceRate);
+-	//private_node_handle_->param("charuco/cornerRefinementMethod", detector_parameters_->cornerRefinementMethod, 0);
+ 	get_parameter("charuco_parameters.cornerRefinementWinSize", detector_parameters_->cornerRefinementWinSize);
+ 	get_parameter("charuco_parameters.cornerRefinementMaxIterations", detector_parameters_->cornerRefinementMaxIterations);
+ 	get_parameter("charuco_parameters.cornerRefinementMinAccuracy", detector_parameters_->cornerRefinementMinAccuracy);
+@@ -118,29 +101,25 @@ void ChArUcoDetector::setupConfigurationFromParameterServer() {
+ 	get_parameter("charuco_parameters.numberOfSquaresInY", number_of_squares_in_y_);
+ 	get_parameter("charuco_parameters.dictionaryId", dictionary_id_);
+ 
+-	get_parameter("function_parameters.use_median_blur",  use_median_blur_);
+-	get_parameter("function_parameters.median_blur_k_size",  median_blur_k_size_);
+-
+-	get_parameter("function_parameters.use_dynamic_range",  use_dynamic_range_);
+-
+-	get_parameter("function_parameters.use_bilateral_filter",  use_bilateral_filter_);
+-	get_parameter("function_parameters.bilateral_filter_pixel_neighborhood",  bilateral_filter_pixel_neighborhood_);
++	get_parameter("function_parameters.use_median_blur", use_median_blur_);
++	get_parameter("function_parameters.median_blur_k_size", median_blur_k_size_);
++	get_parameter("function_parameters.use_dynamic_range", use_dynamic_range_);
++	get_parameter("function_parameters.use_bilateral_filter", use_bilateral_filter_);
++	get_parameter("function_parameters.bilateral_filter_pixel_neighborhood", bilateral_filter_pixel_neighborhood_);
+ 	get_parameter("function_parameters.bilateral_filter_sigma_color", bilateral_filter_sigma_color_);
+ 	get_parameter("function_parameters.bilateral_filter_sigma_space", bilateral_filter_sigma_space_);
+ 	get_parameter("function_parameters.bilateral_filter_border_type", bilateral_filter_border_type_);
+-
+-	get_parameter("function_parameters.use_clahe",  use_clahe_);
+-	get_parameter("function_parameters.clahe_clip_limit",  clahe_clip_limit_);
++	get_parameter("function_parameters.use_clahe", use_clahe_);
++	get_parameter("function_parameters.clahe_clip_limit", clahe_clip_limit_);
+ 	get_parameter("function_parameters.clahe_size_x", clahe_size_x_);
+ 	get_parameter("function_parameters.clahe_size_y", clahe_size_y_);
+-
+ 	get_parameter("function_parameters.use_adaptive_threshold", use_adaptive_threshold_);
+ 	get_parameter("function_parameters.adaptive_threshold_max_value", adaptive_threshold_max_value_);
+ 	get_parameter("function_parameters.adaptive_threshold_method", adaptive_threshold_method_);
+ 	get_parameter("function_parameters.adaptive_threshold_type", adaptive_threshold_type_);
+ 	get_parameter("function_parameters.adaptive_threshold_block_size", adaptive_threshold_block_size_);
+ 	get_parameter("function_parameters.adaptive_threshold_constant_offset_from_mean", adaptive_threshold_constant_offset_from_mean_);
+-	
++
+ 	get_parameter("tf_parameters.use_static_tf_broadcaster", use_static_tf_broadcaster_);
+ 	get_parameter("tf_parameters.tf_broadcaster_republish_rate", tf_broadcaster_republish_rate_);
+ 	transform_stamped_valid_ = false;
+@@ -153,24 +132,34 @@ void ChArUcoDetector::setupConfigurationFromParameterServer() {
+ 	get_parameter("publishers.image_results_publisher.latch", imageLatch);
+ 	image_results_publish_topic_ = image_topic_ + std::string("_charuco_detection");
+ 	charuco_pose_publish_topic_ = image_topic_ + std::string("_charuco_pose");
++
+ 	if (dictionary_id_ > 0)
+-		dictionary_ = cv::aruco::getPredefinedDictionary(cv::aruco::PREDEFINED_DICTIONARY_NAME(dictionary_id_));
++		dictionary_ = cv::makePtr<cv::aruco::Dictionary>(
++			cv::aruco::getPredefinedDictionary(cv::aruco::PredefinedDictionaryType(dictionary_id_)));
+ 	else
+-		dictionary_ = cv::aruco::generateCustomDictionary(number_of_markers_, number_of_bits_for_markers_sides_);
+-	board_ = cv::aruco::CharucoBoard::create(number_of_squares_in_x_, number_of_squares_in_y_,
+-											 static_cast<float>(squares_sides_size_m_), static_cast<float>(markers_sides_size_m_), dictionary_);
++		dictionary_ = cv::makePtr<cv::aruco::Dictionary>(
++			cv::aruco::extendDictionary(number_of_markers_, number_of_bits_for_markers_sides_));
++
++	board_ = cv::makePtr<cv::aruco::CharucoBoard>(
++		cv::Size(number_of_squares_in_x_, number_of_squares_in_y_),
++		static_cast<float>(squares_sides_size_m_), static_cast<float>(markers_sides_size_m_), *dictionary_);
++
++	aruco_detector_ = cv::makePtr<cv::aruco::ArucoDetector>(*dictionary_, *detector_parameters_);
++
++	cv::aruco::CharucoParameters charuco_params;
++	charuco_detector_ = cv::makePtr<cv::aruco::CharucoDetector>(*board_, charuco_params, *detector_parameters_);
+ }
+-void ChArUcoDetector::startDetection() {
+ 
+-  	rclcpp::QoS image_publisher_qos(imageQueueSize);
+-  	if (imageLatch) {
+-  	  image_publisher_qos.transient_local();
+-  	}
++void ChArUcoDetector::startDetection() {
++	rclcpp::QoS image_publisher_qos(imageQueueSize);
++	if (imageLatch) {
++	  image_publisher_qos.transient_local();
++	}
+ 	image_transport_ptr_ = std::make_shared<image_transport::ImageTransport>(shared_from_this());
+-	image_subscriber_ = image_transport_ptr_->subscribe(image_topic_, 10, std::bind(&ChArUcoDetector::imageCallback, 
++	image_subscriber_ = image_transport_ptr_->subscribe(image_topic_, 10, std::bind(&ChArUcoDetector::imageCallback,
+ 					this, std::placeholders::_1));
+ 
+-	camera_info_subscriber_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic_, image_publisher_qos, 
++	camera_info_subscriber_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic_, image_publisher_qos,
+ 							std::bind(&ChArUcoDetector::cameraInfoCallback, this, std::placeholders::_1));
+ 	image_transport_results_ptr_ = std::make_shared<image_transport::ImageTransport>(shared_from_this());
+ 
+@@ -182,21 +171,18 @@ void ChArUcoDetector::startDetection() {
+ 			if (transform_stamped_valid_) {
+ 				tf_broadcaster_->sendTransform(transform_stamped_);
+ 			}
+-			// rclcpp::spin_some(node_handle_);
+ 			tf_broadcaster_republish_rate.sleep();
+ 		}
+ 	} else {
+ 		return;
+-		// rclcpp::spin(node_handle_);
+ 	}
+ }
+-void ChArUcoDetector::getCameraCalibrationCoefficient() {
+ 
++void ChArUcoDetector::getCameraCalibrationCoefficient() {
+ 	inih::INIReader Camera_KD{file_path_};
+-
+ 	if (Camera_KD.ParseError() != 0) {
+-    	std::cout << "Can't load 'camera_calibration.ini'\n";
+-    	return;
++		std::cout << "Can't load 'camera_calibration.ini'\n";
++		return;
+ 	}
+ 	camera_intrinsics_matrix = cv::Mat::zeros(3, 3, CV_64F);
+ 	camera_distortion_coefficients_matrix = cv::Mat::zeros(1, 5, CV_64F);
+@@ -206,15 +192,15 @@ void ChArUcoDetector::getCameraCalibrationCoefficient() {
+ 	distortion.push_back(std::stod(Camera_KD.Get("Distortion", "t1")));
+ 	distortion.push_back(std::stod(Camera_KD.Get("Distortion", "t2")));
+ 	distortion.push_back(std::stod(Camera_KD.Get("Distortion", "k3")));
+-	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "0_0"))); 
+-	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "0_1"))); 
+-	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "0_2"))); 
+-	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "1_0"))); 
+-	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "1_1"))); 
+-	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "1_2"))); 
+-	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "2_0"))); 
+-	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "2_1"))); 
+-	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "2_2"))); 
++	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "0_0")));
++	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "0_1")));
++	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "0_2")));
++	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "1_0")));
++	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "1_1")));
++	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "1_2")));
++	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "2_0")));
++	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "2_1")));
++	intrinsic.push_back(std::stod(Camera_KD.Get("Intrinsic", "2_2")));
+ 	for (int i = 0; i < 3; i++) {
+ 		for (int j = 0; j < 3; j++) {
+ 			camera_intrinsics_matrix.at<double>(i, j) = intrinsic[i * 3 + j];
+@@ -224,7 +210,9 @@ void ChArUcoDetector::getCameraCalibrationCoefficient() {
+ 		camera_distortion_coefficients_matrix.at<double>(0, i) = distortion[i];
+ 	}
+ }
++
+ void ChArUcoDetector::cameraInfoCallback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr &_msg) {
++	RCLCPP_INFO(get_logger(), "DEBUG: cameraInfoCallback invoked, k0=%f", _msg->k[0]);
+ 	bool valid_camera_info = false;
+ 	for (size_t i = 0; i < _msg->k.size(); ++i) {
+ 		if (_msg->k[i] != 0.0) {
+@@ -235,22 +223,12 @@ void ChArUcoDetector::cameraInfoCallback(const sensor_msgs::msg::CameraInfo::Con
+ 	if (valid_camera_info) {
+ 		getCameraCalibrationCoefficient();
+ 		camera_info_ = _msg;
+-		// camera_intrinsics_matrix = cv::Mat::zeros(3, 3, CV_64F);
+-		// camera_distortion_coefficients_matrix = cv::Mat::zeros(1, 5, CV_64F);
+-		// for (int i = 0; i < 3; i++) {
+-		// 	for (int j = 0; j < 3; j++) {
+-		// 		camera_intrinsics_matrix.at<double>(i, j) = _msg->K[i * 3 + j];
+-		// 	}
+-		// }
+-		// for (int i = 0; i < 5; i++) {
+-		// 	camera_distortion_coefficients_matrix.at<double>(0, i) = _msg->D[i];
+-		// }
+ 	} else {
+ 		RCLCPP_WARN(get_logger(),"Received invalid camera intrinsics (K all zeros)");
+ 	}
+ }
+-void ChArUcoDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr &_msg) {
+ 
++void ChArUcoDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr &_msg) {
+ 	if (camera_info_) {
+ 		if (_msg->data.empty() || _msg->step == 0) {
+ 			RCLCPP_WARN(get_logger(),"Discarded empty image");
+@@ -312,11 +290,12 @@ void ChArUcoDetector::imageCallback(const sensor_msgs::msg::Image::ConstSharedPt
+ 			sensor_msgs::msg::Image::Ptr image_filtered_msg = cv_bridge::CvImage(_msg->header, "mono8", image_grayscale).toImageMsg();
+ 			image_results_publisher_.publish(image_filtered_msg);
+ 		}
+-	} 
++	}
+ 	else {
+ 		RCLCPP_WARN(get_logger(),"Discarded image because a valid CameraInfo was not received yet");
+ 	}
+ }
++
+ void ChArUcoDetector::applyMedianBlur(cv::Mat &image_in_out_) {
+ 	cv::Mat temp;
+ 	cv::medianBlur(image_in_out_, temp, median_blur_k_size_);
+@@ -345,23 +324,32 @@ void ChArUcoDetector::applyAdaptiveThreshold(cv::Mat &image_in_out_) {
+ 	cv::adaptiveThreshold(image_in_out_, temp, adaptive_threshold_max_value_, adaptive_threshold_method_, adaptive_threshold_type_, adaptive_threshold_block_size_, adaptive_threshold_constant_offset_from_mean_);
+ 	image_in_out_ = temp;
+ }
++
+ bool ChArUcoDetector::detectChArUcoBoard(const cv::Mat &_image_grayscale, const cv::Mat &_camera_intrinsics, const cv::Mat &_camera_distortion_coefficients,
+ 										 cv::Vec3d &_camera_rotation_out, cv::Vec3d &_camera_translation_out,
+ 										 cv::InputOutputArray _image_with_detection_results, bool _show_rejected_markers) {
+ 	std::vector<int> _marker_ids, charuco_ids;
+ 	std::vector<std::vector<cv::Point2f> > marker_corners, rejected_markers;
+ 	std::vector<cv::Point2f> charuco_corners;
+-	cv::aruco::detectMarkers(_image_grayscale, dictionary_, marker_corners, _marker_ids, detector_parameters_, rejected_markers);
+-	cv::aruco::refineDetectedMarkers(_image_grayscale, board_, marker_corners, _marker_ids, rejected_markers, _camera_intrinsics, _camera_distortion_coefficients);
++
++	aruco_detector_->detectMarkers(_image_grayscale, marker_corners, _marker_ids, rejected_markers);
++
+ 	int interpolatedCorners = 0;
+-	if (!_marker_ids.empty())
+-		interpolatedCorners = cv::aruco::interpolateCornersCharuco(marker_corners, _marker_ids, _image_grayscale, board_, charuco_corners, charuco_ids,
+-																   _camera_intrinsics, _camera_distortion_coefficients);
++	if (!_marker_ids.empty()) {
++		charuco_detector_->detectBoard(_image_grayscale, charuco_corners, charuco_ids, marker_corners, _marker_ids);
++		interpolatedCorners = static_cast<int>(charuco_ids.size());
++	}
+ 
+ 	bool valid_pose = false;
+-	if (_camera_intrinsics.total() != 0)
+-		valid_pose = cv::aruco::estimatePoseCharucoBoard(charuco_corners, charuco_ids, board_, _camera_intrinsics, _camera_distortion_coefficients,
+-														 _camera_rotation_out, _camera_translation_out);
++	if (_camera_intrinsics.total() != 0 && interpolatedCorners > 0) {
++		cv::Mat obj_points, img_points;
++		board_->matchImagePoints(cv::Mat(charuco_corners), cv::Mat(charuco_ids), obj_points, img_points);
++		if (obj_points.total() >= 6) {
++			valid_pose = cv::solvePnP(obj_points, img_points, _camera_intrinsics, _camera_distortion_coefficients,
++									   _camera_rotation_out, _camera_translation_out);
++		}
++	}
++
+ 	if (_image_with_detection_results.needed()) {
+ 		cv::cvtColor(_image_grayscale, _image_with_detection_results, cv::COLOR_GRAY2BGR);
+ 		if (!_marker_ids.empty()) {
+@@ -374,15 +362,18 @@ bool ChArUcoDetector::detectChArUcoBoard(const cv::Mat &_image_grayscale, const
+ 			cv::aruco::drawDetectedCornersCharuco(_image_with_detection_results, charuco_corners, charuco_ids, color);
+ 		}
+ 	}
++
+ 	if (valid_pose) {
+ 		if (_image_with_detection_results.needed()) {
+ 			float axisLength = 0.5f * (static_cast<float>(std::min(number_of_squares_in_x_, number_of_squares_in_y_) * (squares_sides_size_m_)));
+-			cv::aruco::drawAxis(_image_with_detection_results, _camera_intrinsics, _camera_distortion_coefficients, _camera_rotation_out, _camera_translation_out, axisLength);
++			cv::drawFrameAxes(_image_with_detection_results, _camera_intrinsics, _camera_distortion_coefficients,
++							   _camera_rotation_out, _camera_translation_out, axisLength);
+ 		}
+ 		return true;
+ 	}
+ 	return false;
+ }
++
+ void ChArUcoDetector::fillPose(const cv::Vec3d &_camera_rotation, const cv::Vec3d &_camera_translation, geometry_msgs::msg::PoseStamped &_pose_in_out) {
+ 	cv::Mat rotation_matrix;
+ 	cv::Rodrigues(_camera_rotation, rotation_matrix);
+@@ -397,5 +388,3 @@ void ChArUcoDetector::fillPose(const cv::Vec3d &_camera_rotation, const cv::Vec3
+ 	_pose_in_out.pose.orientation.z = q.z();
+ 	_pose_in_out.pose.orientation.w = q.w();
+ }
+-
+-// }

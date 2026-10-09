@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>target_pose_ros</name>
+  <version>0.0.1</version>
+  <description>Extracts a placement pose (centroid/top-surface) from a segmented target object's mask, depth, and camera intrinsics - pure geometry, no neural network. Second half of the perception pipeline's dual source/target design, alongside gsam2_ros and contact_graspnet_ros.</description>
+  <maintainer email="you@example.com">liyun</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_srvs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>cv_bridge</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

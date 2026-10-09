@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>pose_transform_ros</name>
+  <version>0.0.1</version>
+  <description>Transforms the source grasp pose (contact_graspnet_ros) and target placement pose (target_pose_ros) from the camera's optical frame into base_link, using the eye_on_base hand-eye calibration (nero-camera-calibration) via tf2.</description>
+  <maintainer email="you@example.com">liyun</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_srvs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
