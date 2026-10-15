@@ -29,6 +29,8 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
+import time
 
 import cv2
 import rclpy
@@ -36,6 +38,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_srvs.srv import Trigger
 from cv_bridge import CvBridge
+
+from gsam2_ros.worker_client import Gsam2Worker, WorkerError
 
 
 class GSam2SegmentationNode(Node):
@@ -56,6 +60,14 @@ class GSam2SegmentationNode(Node):
         )
         self.declare_parameter("box_threshold", 0.25)
         self.declare_parameter("text_threshold", 0.3)
+        # Persistent worker: loads the models ONCE instead of once per prompt per call (about 17 of every 20 seconds). Set use_worker
+        # to false (ros2 param set /gsam2_segmentation_node use_worker false) to get the old one-process-per-prompt behaviour.
+        self.declare_parameter("use_worker", True)
+        self.declare_parameter(
+            "worker_script",
+            os.path.expanduser("~/gsam2_ros_scripts/grounded_sam2_worker.py"),
+        )
+        self.declare_parameter("worker_timeout_sec", 120.0)
 
         self.bridge = CvBridge()
         self._latest_frame = None
@@ -70,12 +82,32 @@ class GSam2SegmentationNode(Node):
         self.mask_target_pub = self.create_publisher(Image, "/gsam2/mask_target", 10)
         self.annotated_target_pub = self.create_publisher(Image, "/gsam2/annotated_target", 10)
 
+        self._worker = None
+        if self.get_parameter("use_worker").value:
+            worker_script = os.path.expanduser(self.get_parameter("worker_script").value)
+            if os.path.exists(worker_script):
+                self._worker = Gsam2Worker(
+                    ["conda", "run", "-n", self.get_parameter("conda_env_name").value, "--no-capture-output",
+                     "python", "-u", worker_script],
+                    cwd=os.path.expanduser(self.get_parameter("gsam2_repo_dir").value),
+                    log=lambda m: self.get_logger().info(m),
+                )
+                threading.Thread(target=self._warm_worker, daemon=True).start()     # load the models in the background right away
+            else:
+                self.get_logger().warn(f"use_worker is on but {worker_script} does not exist - using one process per prompt")
+
         self.get_logger().info(
             f"Ready. Subscribed to '{camera_topic}'. "
             f"Call /gsam2/segment (std_srvs/Trigger) to segment both "
             f"source_prompt='{self.get_parameter('source_prompt').value}' and "
             f"target_prompt='{self.get_parameter('target_prompt').value}'."
         )
+
+    def _warm_worker(self):
+        try:
+            self._worker.start()
+        except WorkerError as e:
+            self.get_logger().error(f"worker start-up failed: {e} (calls fall back to one process per prompt)")
 
     def _image_cb(self, msg):
         self._latest_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
@@ -129,6 +161,48 @@ class GSam2SegmentationNode(Node):
             annotated = cv2.imread(os.path.join(tmpdir, "annotated.jpg"))
             return True, "ok", mask, annotated, result_data
 
+    def _collect(self, prompt, res, sub_dir):
+        """Turn one worker result into the tuple _run_segmentation returns."""
+        if not res.get("detected", False):
+            return False, f"No detection for prompt '{prompt}'", None, None, None
+        mask = cv2.imread(os.path.join(sub_dir, "mask.png"), cv2.IMREAD_GRAYSCALE)
+        annotated = cv2.imread(os.path.join(sub_dir, "annotated.jpg"))
+        if mask is None or annotated is None:
+            return False, "the worker reported a detection but its files could not be read", None, None, None
+        return True, "ok", mask, annotated, res
+
+    def _segment_both(self, source_prompt, target_prompt, frame):
+        """Returns (source_result, target_result), each shaped like _run_segmentation's return value.
+        Uses the persistent worker when enabled; on any worker problem it falls back to the old one-process-per-prompt path."""
+        t0 = time.time()
+        if self.get_parameter("use_worker").value and self._worker is not None:
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    image_path = os.path.join(tmpdir, "input.jpg")
+                    cv2.imwrite(image_path, frame)
+                    reply = self._worker.request(
+                        dict(cmd="segment", image=image_path, prompts=[source_prompt, target_prompt], output_dir=tmpdir,
+                             box_threshold=self.get_parameter("box_threshold").value,
+                             text_threshold=self.get_parameter("text_threshold").value),
+                        timeout=self.get_parameter("worker_timeout_sec").value,
+                    )
+                    if reply.get("ok"):
+                        res = reply["results"]
+                        out = (self._collect(source_prompt, res[0], os.path.join(tmpdir, "0")),
+                               self._collect(target_prompt, res[1], os.path.join(tmpdir, "1")))
+                        self.get_logger().info(f"segmentation took {time.time() - t0:.1f} s "
+                                               f"(persistent worker; {reply.get('seconds')} s inside it)")
+                        return out
+                    self.get_logger().error("the worker reported an error, falling back: " + str(reply.get("error", "?"))[-400:])
+            except WorkerError as e:
+                self.get_logger().error(f"persistent worker failed ({e}); falling back to one process per prompt")
+        src = self._run_segmentation(source_prompt, frame)
+        if not src[0]:                                          # as before: do not bother with the target if the source failed
+            return src, (False, "not run because the source failed", None, None, None)
+        tgt = self._run_segmentation(target_prompt, frame)
+        self.get_logger().info(f"segmentation took {time.time() - t0:.1f} s (one process per prompt)")
+        return src, tgt
+
     def _segment_cb(self, request, response):
         if self._latest_frame is None:
             response.success = False
@@ -141,17 +215,13 @@ class GSam2SegmentationNode(Node):
         # exact same instant rather than two frames grabbed moments apart.
         frame = self._latest_frame.copy()
 
-        src_ok, src_msg, src_mask, src_annotated, src_data = self._run_segmentation(
-            source_prompt, frame
-        )
+        (src_ok, src_msg, src_mask, src_annotated, src_data), (tgt_ok, tgt_msg, tgt_mask, tgt_annotated, tgt_data) = \
+            self._segment_both(source_prompt, target_prompt, frame)
         if not src_ok:
             response.success = False
             response.message = f"Source ('{source_prompt}') failed: {src_msg}"
             return response
 
-        tgt_ok, tgt_msg, tgt_mask, tgt_annotated, tgt_data = self._run_segmentation(
-            target_prompt, frame
-        )
         if not tgt_ok:
             response.success = False
             response.message = f"Target ('{target_prompt}') failed: {tgt_msg}"
@@ -180,6 +250,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if getattr(node, "_worker", None) is not None:
+            node._worker.stop()
         rclpy.shutdown()
 
 

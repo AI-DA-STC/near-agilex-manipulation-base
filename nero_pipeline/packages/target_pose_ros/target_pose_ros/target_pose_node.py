@@ -29,6 +29,8 @@ from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger
 from cv_bridge import CvBridge
 
+from target_pose_ros.plate_geometry import extract_target, describe
+
 
 class TargetPoseNode(Node):
     def __init__(self):
@@ -37,10 +39,15 @@ class TargetPoseNode(Node):
         self.declare_parameter("mask_topic", "/gsam2/mask_target")
         self.declare_parameter("depth_topic", "/topcam/depth/image_raw")
         self.declare_parameter("camera_info_topic", "/topcam/depth/camera_info")
-        self.declare_parameter("camera_frame", "topcam_depth_optical_frame")
+        # Frame the plate pose is labelled with. "" (default) = AUTO: the frame_id of the depth camera_info message, i.e. the frame the depth data really
+        # lives in. With depth_registration the depth is aligned to the COLOUR image, so a fixed "topcam_depth_optical_frame" label put the plate about
+        # 3 cm sideways of where it is (the gap between the two sensors). Set a name here only to force a frame.
+        self.declare_parameter("camera_frame", "")
+        self._camera_frame_info = None
+        self._frame_logged = None
         self.declare_parameter("depth_scale_to_meters", 0.001)  # 0.001 for 16UC1 mm, 1.0 if already meters
         self.declare_parameter(
-            "z_mode", "top_surface",
+            "z_mode", "floor",
             # "top_surface": z = closest point to camera among target pixels
             #                (the highest physical point, since a top-down
             #                camera means "closer" = "higher") - use this
@@ -48,7 +55,15 @@ class TargetPoseNode(Node):
             # "centroid": z = mean depth of all target pixels - use this
             #                if you want the pose at the target's average
             #                height instead (e.g. placing beside/into it).
+            # "floor":       (NEW, default) z = MEDIAN depth of the pixels near the
+            #                centre = the plate's inner surface, where an object
+            #                will actually rest. Immune to the rim and to a few
+            #                stray pixels (the old "top_surface" took the single
+            #                closest pixel).
         )
+        # How the plate's centre is found (see plate_geometry.py): "hull" (default), "mean" (old), "circle", "bbox".
+        self.declare_parameter("center_mode", "hull")
+        self.declare_parameter("center_fraction", 0.5)   # "floor" uses the pixels within this fraction of the plate radius around the centre
 
         self.bridge = CvBridge()
         self._latest_mask = None
@@ -81,6 +96,16 @@ class TargetPoseNode(Node):
 
     def _camera_info_cb(self, msg):
         self._camera_K = np.array(msg.k).reshape(3, 3)
+        self._camera_frame_info = msg.header.frame_id or None
+
+    def _pose_frame(self):
+        """frame to label the plate pose with: explicit parameter, else the depth camera_info frame, else the old default"""
+        frame = self.get_parameter("camera_frame").value or self._camera_frame_info or "topcam_depth_optical_frame"
+        if frame != self._frame_logged:
+            self.get_logger().info(f"plate pose is labelled with frame '{frame}' "
+                                   f"({'set by parameter' if self.get_parameter('camera_frame').value else 'taken from the depth camera_info'})")
+            self._frame_logged = frame
+        return frame
 
     def _extract_cb(self, request, response):
         if self._latest_mask is None:
@@ -110,43 +135,24 @@ class TargetPoseNode(Node):
             )
             return response
 
-        ys, xs = np.where(mask > 0)
-        if len(xs) == 0:
+        try:
+            r = extract_target(
+                mask, depth.astype(np.float64) * depth_scale, K,
+                z_mode=z_mode,
+                center_mode=self.get_parameter("center_mode").value,
+                center_fraction=self.get_parameter("center_fraction").value,
+            )
+        except ValueError as e:
             response.success = False
-            response.message = "Target mask is empty (no detected pixels)"
+            response.message = str(e)
             return response
-
-        depth_m = depth[ys, xs].astype(np.float64) * depth_scale
-        valid = depth_m > 0  # drop zero/invalid depth readings
-        if not np.any(valid):
-            response.success = False
-            response.message = "All target pixels have invalid (zero) depth"
-            return response
-        xs, ys, depth_m = xs[valid], ys[valid], depth_m[valid]
-
-        fx, fy = K[0, 0], K[1, 1]
-        cx, cy = K[0, 2], K[1, 2]
-
-        # Back-project every target pixel to a 3D point in the camera's
-        # optical frame (standard pinhole projection, inverted).
-        X = (xs - cx) * depth_m / fx
-        Y = (ys - cy) * depth_m / fy
-        Z = depth_m
-
-        position_x = float(np.mean(X))
-        position_y = float(np.mean(Y))
-
-        if z_mode == "top_surface":
-            position_z = float(np.min(Z))  # closest to camera = highest physical point
-        else:
-            position_z = float(np.mean(Z))
 
         pose = PoseStamped()
-        pose.header.frame_id = self.get_parameter("camera_frame").value
+        pose.header.frame_id = self._pose_frame()
         pose.header.stamp = self.get_clock().now().to_msg()
-        pose.pose.position.x = position_x
-        pose.pose.position.y = position_y
-        pose.pose.position.z = position_z
+        pose.pose.position.x = r["x"]
+        pose.pose.position.y = r["y"]
+        pose.pose.position.z = r["z"]
         # No meaningful orientation is derived from the target's geometry
         # here (e.g. a round plate has no natural yaw) - identity
         # orientation in the camera frame. Downstream (task planning)
@@ -157,11 +163,7 @@ class TargetPoseNode(Node):
         self.pose_pub.publish(pose)
 
         response.success = True
-        response.message = (
-            f"Target pose: position=({position_x:.3f}, {position_y:.3f}, "
-            f"{position_z:.3f}) in '{pose.header.frame_id}', "
-            f"from {len(xs)} pixels, z_mode='{z_mode}'"
-        )
+        response.message = f"Target pose: {describe(r)} in '{pose.header.frame_id}'"
         return response
 
 

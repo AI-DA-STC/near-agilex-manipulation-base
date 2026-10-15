@@ -117,7 +117,7 @@ PLACE_Z_CLEARANCE_M = 0.18  # extra height above the plate's own surface for
                             # across multiple real seeds earlier the same
                             # day at this exact (x, y) location.
 APPROACH_MIN, APPROACH_MAX = 0.02, 0.08
-LIFT_MIN, LIFT_MAX = 0.02, 0.05
+LIFT_MIN, LIFT_MAX = 0.05, 0.10   # was 0.02, 0.05; the lift is now a straight line (LIFT_CARTESIAN)
 PLACE_MIN, PLACE_MAX = 0.02, 0.05
 RETREAT_MIN, RETREAT_MAX = 0.02, 0.15
 MAX_TILT_DEG = 55.0
@@ -125,6 +125,28 @@ CGN_GRIPPER_DEPTH = 0.1034   # check against the grep above
 OUR_FINGER_REACH = 0.14      # tcp_link origin -> middle of our finger pads; tune below
 GRASP_OFFSET_X = 0.0   # m, world-frame nudge of every grasp (negative = farther from the base)
 GRASP_OFFSET_Y = 0.0
+
+# ===================== LIFT / TRANSIT / PLACE BEHAVIOUR (added 2026-10-12) =====================
+# Each switch can be turned off to get the previous behaviour back.
+APPLY_TCP_CONVERSION = False    # True: pass every candidate through to_tcp_pose() (jaw-axis and finger-depth conversion).
+                                # False = what the arm has been doing so far: the raw Contact-GraspNet pose IS the tcp_link target,
+                                # so OUR_FINGER_REACH only matters for the release-height calculation below, and CGN_GRIPPER_DEPTH /
+                                # GRASP_OFFSET_X/Y have no effect.
+LIFT_CARTESIAN = True           # lift and retreat in a straight vertical line (False: joint-space planner, which can wander)
+TRANSIT_JOINT_INTERP_FIRST = True   # try a plain joint-space interpolation first (smooth, deterministic); the sampling planner only as fallback
+PLACE_HEIGHT_MODE = "auto"      # "auto": release height computed from the grasp (see auto_release_tcp_z); "fixed": PLACE_Z_CLEARANCE_M above the plate
+PLACE_RELEASE_GAP_M = 0.01      # auto: gap between the object's bottom and the plate floor at the moment the gripper opens
+PLATE_THICKNESS_M = 0.02        # auto: how far the plate floor is above the table the object stood on  <-- MEASURE THIS with a ruler. 0.02 is a
+                                # deliberately cautious guess: too small pushes the object INTO the plate, too large only means a bigger drop
+PLACE_DESCEND = True            # hover above the release point, then straight down (False: go directly to the release point)
+PLACE_HOVER_M = 0.06            # hover height above the release point
+PLACE_CONE_DEG = 20             # +- tilt per axis allowed for the release orientation (was 32). Smaller = smaller drop error, fewer IK options
+PLACE_OFFSET_X = 0.0            # m, world-frame nudge of the release point (for centring on the plate); negative X = farther from the base
+PLACE_OFFSET_Y = 0.0
+AUTO_Z_MIN, AUTO_Z_MAX = 0.05, 0.40   # sanity range (base_link z) for the automatic release height; outside it the fixed mode is used
+# Optional speed-up of single phases (1.0 = unchanged). Applied only when the solution has exactly the expected number of arm segments.
+PHASE_SPEED = {"connect": 1.0, "approach": 1.0, "lift": 1.0, "transit": 1.0, "descend": 1.0, "retreat": 1.0}
+# ===============================================================================================
 
 def to_tcp_pose(p):
     # tcp_link axes: approach = +Z, jaw = Y.  Contact-GraspNet: approach = +Z, jaw = X.
@@ -167,6 +189,33 @@ def tilt_from_down_deg(q):
     az = 1 - 2 * (q.x * q.x + q.y * q.y)
     return math.degrees(math.acos(max(-1.0, min(1.0, -az))))
 
+def approach_z_component(q):
+    """z component (in base_link) of a pose's local +Z (approach) axis: about -1 when the gripper points straight down."""
+    return 1 - 2 * (q.x * q.x + q.y * q.y)
+
+
+def auto_release_tcp_z(grasp_poses):
+    """
+    Height for tcp_link at the moment of release, worked out from the GRASP itself so it adapts to any object.
+
+    At the pick the object's bottom rests on the table, and the finger pads (OUR_FINGER_REACH along the approach axis from tcp_link)
+    hold it at some height above the table. The plate floor is PLATE_THICKNESS_M above the same table. To put the object's bottom
+    PLACE_RELEASE_GAP_M above the plate floor the pads must be at the same height as at the grasp plus (plate thickness + gap).
+    The table and plate heights from perception cancel out, so only the grasp pose and two measured numbers are needed.
+
+    Assumes a (near) vertical release; a tilted release makes the drop a little larger, never smaller.
+    Uses the HIGHEST value over the candidates so the object is never lower than intended whichever candidate MTC picks.
+    Returns (tcp_z or None, per-candidate tcp_z list).
+    """
+    zs = []
+    for p in grasp_poses:
+        pad_z = p.position.z + approach_z_component(p.orientation) * OUR_FINGER_REACH
+        zs.append(pad_z + PLATE_THICKNESS_M + PLACE_RELEASE_GAP_M + OUR_FINGER_REACH)
+    if not zs:
+        return None, []
+    return max(zs), zs
+
+
 # ======================= ARM SPEED: ONE PLACE =======================
 # Every segment of the solution is retimed from these limits just
 # before it is sent (OMPL and gripper segments arrive with no timing at
@@ -178,18 +227,31 @@ GRIPPER_MAX_ACC = 0.3    # m/s^2
 MIN_STEP_S = 0.001
 
 
-def retime_solution(solution_msg):
-    """Recompute time_from_start for every waypoint (trapezoidal profile)."""
+def retime_solution(solution_msg, phase_names=None):
+    """Recompute time_from_start for every waypoint (trapezoidal profile).
+
+    phase_names: optional list naming the ARM segments in order (connect, approach, lift, transit, descend, retreat).
+    The PHASE_SPEED multipliers are applied only when the solution has exactly that many arm segments."""
     import math
     total = 0.0
-    for traj in solution_msg.sub_trajectory:
+    arm_idx = [k for k, t in enumerate(solution_msg.sub_trajectory)
+               if len(t.trajectory.joint_trajectory.points) >= 2
+               and not any(n.startswith("gripper") for n in t.trajectory.joint_trajectory.joint_names)]
+    phase_of = {}
+    if phase_names:
+        if len(arm_idx) == len(phase_names):
+            phase_of = dict(zip(arm_idx, phase_names))
+        else:
+            print(f"PHASE_SPEED not applied: the solution has {len(arm_idx)} arm segments, expected {len(phase_names)} {phase_names}")
+    for seg_k, traj in enumerate(solution_msg.sub_trajectory):
         jt = traj.trajectory.joint_trajectory
         pts = jt.points
         if len(pts) < 2:
             continue
+        f = PHASE_SPEED.get(phase_of.get(seg_k), 1.0)
         grip = [n.startswith("gripper") for n in jt.joint_names]
-        vmax = [GRIPPER_MAX_VEL if g else ARM_MAX_VEL for g in grip]
-        amax = [GRIPPER_MAX_ACC if g else ARM_MAX_ACC for g in grip]
+        vmax = [GRIPPER_MAX_VEL if g else ARM_MAX_VEL * f for g in grip]
+        amax = [GRIPPER_MAX_ACC if g else ARM_MAX_ACC * f for g in grip]
         # time each step would take at full speed (slowest joint decides)
         need = [max(abs(b - a) / v for a, b, v in zip(p0.positions, p1.positions, vmax))
                 for p0, p1 in zip(pts, pts[1:])]
@@ -403,6 +465,9 @@ def build_and_run_task(grasp_candidates, target_pose):
             usable.append(p)
     usable.sort(key=lambda q: tilt_from_down_deg(q.orientation))   # most top-down first
     candidate_poses = usable[:MAX_CANDIDATES_IN_TASK]
+    if APPLY_TCP_CONVERSION:
+        candidate_poses = [to_tcp_pose(p) for p in candidate_poses]
+        print("APPLY_TCP_CONVERSION is on: candidates converted with to_tcp_pose()")
     if not candidate_poses:
         print("No grasp candidates within the top-down cone - nothing to plan.")
         return
@@ -475,7 +540,7 @@ def build_and_run_task(grasp_candidates, target_pose):
     task.add(attach)
 
     # --- Lift ---
-    lift = stages.MoveRelative("lift", pipeline)
+    lift = stages.MoveRelative("lift", cart if LIFT_CARTESIAN else pipeline)
     lift.group = ARM_GROUP
     lift.ik_frame = ik_frame
     lift_twist = TwistStamped()
@@ -487,13 +552,39 @@ def build_and_run_task(grasp_candidates, target_pose):
     task.add(lift)
 
     # --- Transit ---
-    task.add(stages.Connect("transit", arm_planner))
+    if TRANSIT_JOINT_INTERP_FIRST:
+        # smooth, deterministic joint-space interpolation first; the sampling planner is only the fallback
+        transit = core.Fallbacks("transit options")
+        transit.add(stages.Connect("transit (joint interpolation)", [(ARM_GROUP, core.JointInterpolationPlanner())]))
+        transit.add(stages.Connect("transit (planner)", arm_planner))
+        task.add(transit)
+    else:
+        task.add(stages.Connect("transit", arm_planner))
 
     # --- Place: try both orientation options (top candidate's own
     #     orientation, and its 180 flip) as parallel alternatives -
     #     the user has no requirement on final placement orientation. ---
     base_place_position = target_pose.pose.position
-    place_z = base_place_position.z + PLACE_Z_CLEARANCE_M
+    place_x = base_place_position.x + PLACE_OFFSET_X
+    place_y = base_place_position.y + PLACE_OFFSET_Y
+    place_z = base_place_position.z + PLACE_Z_CLEARANCE_M          # "fixed" mode
+    height_note = f"fixed: plate z {base_place_position.z:.3f} + clearance {PLACE_Z_CLEARANCE_M:.3f}"
+    if PLACE_HEIGHT_MODE == "auto":
+        auto_z, auto_zs = auto_release_tcp_z(candidate_poses)
+        if auto_z is not None and AUTO_Z_MIN <= auto_z <= AUTO_Z_MAX:
+            fixed_z = place_z                                      # what the old fixed method would have used
+            place_z = auto_z
+            height_note = (f"auto: grasp-based, release tcp z {auto_z:.3f} (per candidate "
+                           f"{', '.join(f'{z:.3f}' for z in auto_zs)}; plate thickness {PLATE_THICKNESS_M:.3f}, gap {PLACE_RELEASE_GAP_M:.3f}, "
+                           f"finger reach {OUR_FINGER_REACH:.3f}); the old fixed method would have used {fixed_z:.3f}, "
+                           f"i.e. the object is released {1000 * (fixed_z - auto_z):.0f} mm lower")
+            if max(auto_zs) - min(auto_zs) > 0.04:
+                print(f"WARNING: the candidates' release heights differ by {max(auto_zs) - min(auto_zs):.3f} m; "
+                      f"the highest is used, so the drop may be larger for some candidates.")
+        else:
+            print(f"WARNING: automatic release height {auto_z} is not usable (allowed {AUTO_Z_MIN}..{AUTO_Z_MAX}); using the fixed clearance instead.")
+    hover = PLACE_HOVER_M if PLACE_DESCEND else 0.0
+    ik_place_z = place_z + hover                                   # the pose the place IK solves for (hover point, or the release point itself)
 
     def make_quat(x, y, z, w):
         from geometry_msgs.msg import Quaternion
@@ -518,16 +609,16 @@ def build_and_run_task(grasp_candidates, target_pose):
     
     place_ps = PoseStamped()
     place_ps.header.frame_id = BASE_FRAME
-    place_ps.pose.position.x = base_place_position.x
-    place_ps.pose.position.y = base_place_position.y
-    place_ps.pose.position.z = place_z
+    place_ps.pose.position.x = place_x
+    place_ps.pose.position.y = place_y
+    place_ps.pose.position.z = ik_place_z
     place_ps.pose.orientation = make_quat(0.0, 1.0, 0.0, 0.0)   # exact top-down seed
 
     gen = stages.GenerateRandomPose("place pose cone")
     gen.pose = place_ps
     gen.setMonitoredStage(task["lift"])
     gen.set_max_solutions(40)
-    W = math.radians(64)   # full range -> +-32 deg per axis, corners reach ~45 deg total
+    W = math.radians(2 * PLACE_CONE_DEG)   # full range -> +-PLACE_CONE_DEG per axis
     gen.sample_dimension(stages.PoseDimension.ROLL, W)
     gen.sample_dimension(stages.PoseDimension.PITCH, W)
     # gen.sample_dimension(stages.PoseDimension.YAW, W)
@@ -557,6 +648,20 @@ def build_and_run_task(grasp_candidates, target_pose):
     place_alternatives.add(ik)
     task.add(place_alternatives)
 
+    if hover > 0:
+        # straight down from the hover point to the release point (a short Cartesian move: far more reliable than the old 0.5 m one)
+        descend = stages.MoveRelative("place descend", cart)
+        descend.group = ARM_GROUP
+        descend.ik_frame = ik_frame
+        descend_twist = TwistStamped()
+        descend_twist.header.frame_id = BASE_FRAME
+        descend_twist.twist.linear.z = -1.0
+        descend.setDirection(descend_twist)
+        descend.min_distance = max(hover - 0.005, 0.01)
+        descend.max_distance = hover
+        task.add(descend)
+    phase_names = ["connect", "approach", "lift", "transit"] + (["descend"] if hover > 0 else []) + ["retreat"]
+
     detach = stages.ModifyPlanningScene("detach carrot")
     detach.detachObject("carrot", IK_FRAME_LINK)
     task.add(detach)
@@ -567,7 +672,7 @@ def build_and_run_task(grasp_candidates, target_pose):
     task.add(release_gripper)
 
     # --- Retreat ---
-    retreat = stages.MoveRelative("retreat", pipeline)
+    retreat = stages.MoveRelative("retreat", cart if LIFT_CARTESIAN else pipeline)
     retreat.group = ARM_GROUP
     retreat.ik_frame = ik_frame
     retreat_twist = TwistStamped()
@@ -579,7 +684,12 @@ def build_and_run_task(grasp_candidates, target_pose):
     task.add(retreat)
 
     print(f"Trying {len(candidate_poses)} grasp candidate(s) x2 orientation variants each.")
-    print(f"Target position: ({base_place_position.x:.3f}, {base_place_position.y:.3f}, {place_z:.3f})")
+    print(f"Target position: ({place_x:.3f}, {place_y:.3f}, {place_z:.3f})  [release point]   plate pose seen: "
+          f"({base_place_position.x:.3f}, {base_place_position.y:.3f}, {base_place_position.z:.3f})")
+    print(f"Place height -> {height_note}")
+    print(f"Place: hover {hover:.3f} m above the release point, cone +-{PLACE_CONE_DEG} deg, descend={'on' if hover > 0 else 'off'}; "
+          f"lift {LIFT_MIN:.2f}-{LIFT_MAX:.2f} m ({'straight line' if LIFT_CARTESIAN else 'planner'}); "
+          f"transit {'joint interpolation first' if TRANSIT_JOINT_INTERP_FIRST else 'planner only'}")
     print("Planning...")
 
     if task.plan(50):
@@ -613,7 +723,7 @@ def build_and_run_task(grasp_candidates, target_pose):
                     print(f"DIAG seg {_k}: {len(_pts)} pts, last t={_l.sec + _l.nanosec * 1e-9:.2f}s, "
                           f"velocities={'yes' if _pts[-1].velocities else 'no'}, "
                           f"joints={list(_st.trajectory.joint_trajectory.joint_names)[:2]}")
-            retime_solution(solution_msg)
+            retime_solution(solution_msg, phase_names)
             goal.solution = solution_msg
             send_goal_future = action_client.send_goal_async(goal)
             rclpy_module.spin_until_future_complete(exec_node, send_goal_future)
