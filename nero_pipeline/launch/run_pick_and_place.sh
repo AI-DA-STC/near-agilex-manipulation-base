@@ -13,8 +13,8 @@ call_checked() { out=$(ros2 service call "$1" std_srvs/srv/Trigger 2>&1); echo "
 
 set -e
 
-echo "=== 0/5: Moving arm to pose_90deg ==="
-/usr/bin/python3 "$HOME/nero_pipeline_launch/scripts/move_to_pose_90deg.py" || { echo "pose_90deg move failed"; exit 1; }
+echo "=== 0/5: Moving arm to the start pose (${START_POSE:-initial}) ==="
+/usr/bin/python3 "$HOME/nero_pipeline_launch/scripts/move_to_pose_90deg.py" || { echo "start-pose move failed"; exit 1; }
 
 source /opt/ros/humble/setup.bash
 source "$HOME/agx_arm_ws/install/setup.bash"

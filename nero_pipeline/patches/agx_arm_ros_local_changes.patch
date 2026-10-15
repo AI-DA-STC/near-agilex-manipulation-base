@@ -2,7 +2,7 @@ diff --git a/scripts/agx_arm_install_deps.sh b/scripts/agx_arm_install_deps.sh
 old mode 100644
 new mode 100755
 diff --git a/src/agx_arm_moveit/config/agx_arm.srdf.xacro b/src/agx_arm_moveit/config/agx_arm.srdf.xacro
-index d69f987..864bd2d 100644
+index d69f987..e0654ea 100644
 --- a/src/agx_arm_moveit/config/agx_arm.srdf.xacro
 +++ b/src/agx_arm_moveit/config/agx_arm.srdf.xacro
 @@ -26,6 +26,12 @@
@@ -18,7 +18,7 @@ index d69f987..864bd2d 100644
      <group_state name="gripper_half" group="gripper">
        <joint name="gripper" value="0.05" />
      </group_state>
-@@ -355,15 +361,24 @@
+@@ -355,15 +361,33 @@
    </xacro:unless>
    <xacro:if value="$(eval arm_type == 'nero')">
      <group_state name="home" group="arm">
@@ -47,6 +47,15 @@ index d69f987..864bd2d 100644
 +      <joint name="joint7" value="0.040317105721069016" />
      </group_state>
 -  </xacro:if>
++    <group_state name="initial" group="arm">
++      <joint name="joint1" value="1.7453292519943296e-05" />
++      <joint name="joint2" value="-1.043968692080408" />
++      <joint name="joint3" value="-5.235987755982989e-05" />
++      <joint name="joint4" value="2.08" />
++      <joint name="joint5" value="6.981317007977319e-05" />
++      <joint name="joint6" value="0.002513274122871835" />
++      <joint name="joint7" value="0.43399357180090997" />
++    </group_state>
 +</xacro:if>
  
    <!-- ======================== ARM DISABLE COLLISIONS ======================== -->

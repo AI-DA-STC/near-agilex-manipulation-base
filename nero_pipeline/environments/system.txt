@@ -1,4 +1,4 @@
-# generated 2026-10-09 08:57 UTC
+# generated 2026-10-15 03:08 UTC
 Linux 5.15.199-tegra aarch64 GNU/Linux
 Distributor ID:	Ubuntu
 Description:	Ubuntu 22.04.5 LTS
@@ -11,6 +11,8 @@ Cuda compilation tools, release 12.6, V12.6.68
 Build cuda_12.6.r12.6/compiler.34714021_0
 
 --- gs_usb module
+gs_usb                 24576  0
+can_dev                36864  2 mttcan,gs_usb
 filename:       /lib/modules/5.15.199-tegra/kernel/drivers/net/can/usb/gs_usb.ko
 license:        GPL v2
 description:    Socket CAN device driver for Geschwister Schneider Technologie-, Entwicklungs- und Vertriebs UG. USB2.0 to CAN interfaces

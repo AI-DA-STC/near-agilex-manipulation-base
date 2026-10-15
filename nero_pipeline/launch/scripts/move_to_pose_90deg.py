@@ -29,8 +29,16 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 # pose_90deg's known joint values (from the custom SRDF state defined
 # early in this project).
 JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
-POSE_90DEG = [-3.49e-05, -0.0063, -5.24e-05, 1.5674, -0.0759, 0.0026, 0.0403]
-
+# Named start poses (joint1..7, radians). Choose with the environment variable START_POSE; the default is "initial".
+#   START_POSE=pose_90deg ./run_pick_and_place.sh     brings the old start pose back without editing anything.
+POSES = {
+    "pose_90deg": [-3.49e-05, -0.0063, -5.24e-05, 1.5674, -0.0759, 0.0026, 0.0403],
+    "initial": [0.000017, -1.043969, -0.000052, 2.080000, 0.000070, 0.002513, 0.433994],      # captured from the real arm: clear of the top camera's view
+}
+START_POSE = os.environ.get("START_POSE", "initial")
+if START_POSE not in POSES:
+    sys.exit("START_POSE=%s is not one of %s" % (START_POSE, list(POSES)))
+POSE_90DEG = POSES[START_POSE]   # (variable name kept so the rest of the script is unchanged: it holds the CHOSEN start pose)
 TOLERANCE_RAD = 0.02  # ~1.1 degrees - close enough to skip moving
 MOVE_DURATION_SEC = float(os.environ.get("HOME_MOVE_SECONDS", "4.0"))  # how long the trajectory takes to execute
 
@@ -102,13 +110,13 @@ def main():
         sys.exit(1)
 
     if node.is_already_at_pose_90deg():
-        print("Already at pose_90deg - no movement needed.")
+        print(f"Already at {START_POSE} - no movement needed.")
     else:
-        print(f"Not at pose_90deg (current: {node.current_positions}) - moving there now...")
+        print(f"Not at {START_POSE} (current: {node.current_positions}) - moving there now...")
         if node.move_to_pose_90deg():
-            print("Reached pose_90deg.")
+            print(f"Reached {START_POSE}.")
         else:
-            print("FAILED to reach pose_90deg - check the arm_controller is running.")
+            print(f"FAILED to reach {START_POSE} - check the arm_controller is running.")
             sys.exit(1)
 
     node.destroy_node()

@@ -1,2 +1,3 @@
+src/agx_arm_moveit/config/agx_arm.srdf.xacro.bak_initial_20261013_152520
 src/agx_arm_moveit/config/initial_positions.yaml.bak_home
 src/agx_arm_moveit/config/joint_limits.yaml.bak

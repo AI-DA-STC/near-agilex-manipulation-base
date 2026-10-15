@@ -87,7 +87,7 @@ start "gsam2_ros" ros2 launch gsam2_ros groundedsam2.launch.py \
     source_prompt:="a green cube." target_prompt:="plate."
 sleep 3
 
-start "contact_graspnet_ros" ros2 launch contact_graspnet_ros contactgraspnet.launch.py
+start "contact_graspnet_ros" ros2 launch contact_graspnet_ros contactgraspnet.launch.py forward_passes:=${CGN_FORWARD_PASSES:-5} recentre_on_object:=${CGN_RECENTRE:-true} recentre_depth_below_top_m:=${CGN_DEPTH:-0.006}
 sleep 3
 
 start "target_pose_ros" ros2 launch target_pose_ros targetpose.launch.py
