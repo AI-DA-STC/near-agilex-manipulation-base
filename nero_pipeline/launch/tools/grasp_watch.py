@@ -39,12 +39,28 @@ def tf_to_T(ts):
     return T
 
 
-def select_candidates(poses, M, sort_by_tilt=False):
-    """Same filtering/conversion/(sorting)/slicing as build_and_run_task in mtc_pick_and_place.py."""
-    usable = [M.to_tcp_pose(p) for p in poses if M.tilt_from_down_deg(p.orientation) <= M.MAX_TILT_DEG]
+def select_candidates(poses, M, sort_by_tilt=False, convert=False):
+    """Same filtering/(sorting)/slicing/(conversion) as build_and_run_task in mtc_pick_and_place.py.
+
+    convert: whether the script applies to_tcp_pose() to the candidates. The script only does so when APPLY_TCP_CONVERSION is True
+    (older versions never called it: the raw Contact-GraspNet pose was used directly as the tcp_link target)."""
+    usable = [p for p in poses if M.tilt_from_down_deg(p.orientation) <= M.MAX_TILT_DEG]
     if sort_by_tilt:
         usable.sort(key=lambda q: M.tilt_from_down_deg(q.orientation))      # most top-down first
-    return usable[:M.MAX_CANDIDATES_IN_TASK]
+    usable = usable[:M.MAX_CANDIDATES_IN_TASK]
+    return [M.to_tcp_pose(p) for p in usable] if convert else usable
+
+
+def release_report(grasp_T, release_T, M):
+    """How far did tcp_link rise between the grasp and the release? Returns (text, rise_mm, expected_mm or None).
+    With the automatic release height the rise should equal plate thickness + gap (for vertical grasp and release)."""
+    rise = 1000 * float(release_T[2, 3] - grasp_T[2, 3])
+    mode = getattr(M, "PLACE_HEIGHT_MODE", None)
+    if mode == "auto":
+        exp = 1000 * (getattr(M, "PLATE_THICKNESS_M", 0.0) + getattr(M, "PLACE_RELEASE_GAP_M", 0.0))
+        return ("RELEASE: tcp rose %.0f mm between grasp and release; the automatic height expects about %.0f mm "
+                "(plate thickness + gap) for a vertical grasp and release; difference %+.0f mm. Tilt at release adds to the drop." % (rise, exp, rise - exp)), rise, exp
+    return "RELEASE: tcp rose %.0f mm between grasp and release (fixed height mode)." % rise, rise, None
 
 
 def match_used(T_act, cands):
@@ -86,7 +102,7 @@ def main():
             super().__init__("grasp_watch")
             self.buf = tf2_ros.Buffer(); self.lis = tf2_ros.TransformListener(self.buf, self)
             self.raw, self.cands, self.K, self.cam_frame = [], [], None, None
-            self.gripper_open = None; self.viewer = None
+            self.gripper_open = None; self.viewer = None; self.grasp_T = None
             self.create_subscription(PoseArray, "/grasp_poses_transformed", self.on_poses, latched)
             self.create_subscription(CameraInfo, "/topcam/depth/camera_info", self.on_info, 10)
             self.create_subscription(JointState, topic, self.on_js, 20)
@@ -113,11 +129,13 @@ def main():
         def on_poses(self, msg):
             self.raw = list(msg.poses)
             self.sort_by_tilt = "usable.sort(" in inspect.getsource(M)        # follow whatever the MTC file does
-            self.cands = select_candidates(self.raw, M, self.sort_by_tilt)
+            self.convert = bool(getattr(M, "APPLY_TCP_CONVERSION", False))     # older script versions never converted
+            self.cands = select_candidates(self.raw, M, self.sort_by_tilt, self.convert)
             self.write()
             self.get_logger().info("candidates: %d raw -> %d usable tcp targets given to MTC (tilt<=%.0f deg, %s)" %
                                    (len(self.raw), len(self.cands), M.MAX_TILT_DEG,
-                                    "most top-down first" if self.sort_by_tilt else "best score first"))
+                                    ("most top-down first" if self.sort_by_tilt else "best score first") +
+                                    (", converted with to_tcp_pose" if self.convert else ", raw Contact-GraspNet poses used as tcp targets")))
             self.get_logger().info("tilts given to MTC (deg): %s" % [round(M.tilt_from_down_deg(p.orientation)) for p in self.cands])
             self.open_viewer()
 
@@ -145,6 +163,7 @@ def main():
                 if not self.cands:
                     self.get_logger().warn("gripper closed but no candidates were received")
                 else:
+                    self.grasp_T = T
                     m = match_used(T, [pose_to_T(p) for p in self.cands])
                     ok, variant = verdict(m)
                     self.write(used=m["index"], actual=T, match=m)
@@ -153,6 +172,14 @@ def main():
                         "%.0f mm along the approach (negative = stopped short), %s -> %s" %
                         (T[0, 3], T[1, 3], T[2, 3], m["index"], m["dist_mm"], m["axis_deg"], m["along_mm"], variant,
                          "ARM FOLLOWED THE GENERATED GRASP" if ok else "DOES NOT MATCH ANY CANDIDATE"))
+            elif (not self.gripper_open) and is_open and self.grasp_T is not None:   # closed -> open = THE RELEASE
+                try:
+                    Tr = tf_to_T(self.buf.lookup_transform("base_link", "tcp_link", rclpy.time.Time()))
+                    text, _rise, _exp = release_report(self.grasp_T, Tr, M)
+                    self.get_logger().info(text + " | release at x=%.3f y=%.3f z=%.3f" % (Tr[0, 3], Tr[1, 3], Tr[2, 3]))
+                except Exception as e:
+                    self.get_logger().warn("no TF at release: %s" % e)
+                self.grasp_T = None
             self.gripper_open = is_open
 
     rclpy.init(); n = Watch()

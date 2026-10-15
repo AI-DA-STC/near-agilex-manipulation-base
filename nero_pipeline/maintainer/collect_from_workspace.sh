@@ -72,18 +72,20 @@ PV="$HERE/docs/PACKAGE_VERSIONS.md"; mkdir -p "$HERE/patches" "$HERE/docs"
   echo "Clone each repository, check out the commit, and (where \"Local changes\" is not 0) apply the patch listed in \`patches/\`."; echo
   echo "| Directory | Remote | Branch | Commit | Local changes | Unpushed commits |"; echo "|---|---|---|---|---|---|"
 } > "$PV"
+# NOTE (2026-10-14): the umbrella repository tracks this folder (nero_pipeline/), so its own uncommitted changes and the files collected above must NOT count as "local changes":
+# before this exclusion the umbrella patch swallowed all of them (156 KB instead of 261 bytes in a rehearsal). The pathspec is harmless for repositories that have no nero_pipeline/.
 record() {
   local d="${1%/}" name; name="$(basename "$d")"
   if [ -e "$d/.git" ]; then
     local remote branch commit dirty ahead
     ahead="$(git -C "$d" rev-list --count '@{u}..HEAD' 2>/dev/null || echo '?')"
     remote="$(git -C "$d" remote get-url origin 2>/dev/null || echo '(no remote)')"; branch="$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"
-    commit="$(git -C "$d" rev-parse --short=12 HEAD 2>/dev/null)"; dirty="$(git -C "$d" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+    commit="$(git -C "$d" rev-parse --short=12 HEAD 2>/dev/null)"; dirty="$(git -C "$d" status --porcelain -- . ':(exclude)nero_pipeline' 2>/dev/null | wc -l | tr -d ' ')"
     echo "| \`$name\` | $remote | $branch | \`$commit\` | $dirty | $ahead |" >> "$PV"
     [ "$ahead" != "0" ] && [ "$ahead" != "?" ] && echo "UNPUSHED commits in $name: $ahead  <-- git -C $d push"
     if [ "$dirty" != "0" ]; then
-      git -C "$d" diff --binary > "$HERE/patches/${name}_local_changes.patch" 2>/dev/null
-      git -C "$d" ls-files --others --exclude-standard > "$HERE/patches/${name}_untracked_files.txt" 2>/dev/null
+      git -C "$d" diff --binary -- . ':(exclude)nero_pipeline' > "$HERE/patches/${name}_local_changes.patch" 2>/dev/null
+      git -C "$d" ls-files --others --exclude-standard -- . ':(exclude)nero_pipeline' > "$HERE/patches/${name}_untracked_files.txt" 2>/dev/null
       [ -s "$HERE/patches/${name}_local_changes.patch" ] || rm -f "$HERE/patches/${name}_local_changes.patch"
       [ -s "$HERE/patches/${name}_untracked_files.txt" ] || rm -f "$HERE/patches/${name}_untracked_files.txt"
       echo "uncommitted changes in $name ($dirty entries): patch written to patches/  <-- COMMIT AND PUSH if this is one of OUR packages"

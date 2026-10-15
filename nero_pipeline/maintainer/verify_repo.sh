@@ -27,6 +27,13 @@ for f in README.md .gitignore docs/01_system_overview.md docs/02_install_and_env
          reference_copies/nero_mtc_task/nero_mtc_task/mtc_pick_and_place.py config_snapshots/agx_arm_moveit/agx_arm.srdf.xacro \
          config_snapshots/agx_arm_moveit/initial_positions.yaml config_snapshots/calibration/nero_eye_to_hand_calib.calib \
          docs/PACKAGE_VERSIONS.md; do need_file "$f"; done
+for f in docs/11_perception_workers_frames_recentring.md docs/12_current_run_sequence.md future_work/README.md future_work/ask_prompts/ask_prompts.py \
+         launch/scripts/add_table_box.py launch/tools/pregrasp_check.py launch/tools/cgn_openings.py launch/tools/cgn_probe.py launch/tools/mask_depth_check.py \
+         launch/tools/ik_probe.py launch/tools/demo_view.py launch/tools/add_initial_pose.py launch/tools/plate_center_check.py launch/tools/grounded_sam2_inference_timed.py \
+         packages/gsam2_ros/gsam2_ros/worker_client.py packages/gsam2_ros/scripts/grounded_sam2_worker.py \
+         packages/contact_graspnet_ros/contact_graspnet_ros/worker_client.py packages/contact_graspnet_ros/contact_graspnet_ros/recentre.py packages/contact_graspnet_ros/scripts/contact_graspnet_worker.py \
+         packages/target_pose_ros/target_pose_ros/plate_geometry.py \
+         maintainer/sync_packages_from_workspace.sh maintainer/run_offline_tests.sh; do need_file "$f"; done
 
 echo; echo "== syntax =="
 while IFS= read -r f; do bash -n "$f" 2>/dev/null && ok "bash -n ${f#$HERE/}" || fail "bash syntax error in ${f#$HERE/}"; done < <(find "$HERE" -name '*.sh' -not -path '*/.git/*')
@@ -64,9 +71,39 @@ marker config_snapshots/agx_arm_moveit/initial_positions.yaml "joint1" "simulati
 marker config_snapshots/calibration/nero_eye_to_hand_calib.calib "topcam_link" "calibration expressed relative to topcam_link"
 marker config_snapshots/calibration/nero_eye_to_hand_calib.calib "eye_on_base" "calibration type"
 
+echo; echo "== updates of 2026-10-12 to 2026-10-14 (workers, camera frame, re-centring, table box; see docs/11) =="
+GN=packages/gsam2_ros/gsam2_ros/gsam2_segmentation_node.py
+marker $GN "Gsam2Worker" "persistent Grounded-SAM-2 worker (docs/11 section 1)"
+marker $GN "use_worker" "the worker can be switched off live (fallback to one process per prompt)"
+marker packages/gsam2_ros/scripts/grounded_sam2_worker.py "def main" "worker script"
+CN=packages/contact_graspnet_ros/contact_graspnet_ros/contact_graspnet_node.py
+marker $CN "SpoolWorker" "persistent Contact-GraspNet worker"
+marker $CN "recentre_on_object" "grasp re-centring (docs/11 section 3)"
+marker $CN "_grasp_frame" "grasp frame follows the depth camera_info (docs/11 section 2)"
+marker packages/contact_graspnet_ros/contact_graspnet_ros/recentre.py "def recentre_grasps" "re-centring geometry"
+marker packages/contact_graspnet_ros/scripts/contact_graspnet_worker.py "def infer" "worker script"
+marker packages/contact_graspnet_ros/launch/contactgraspnet.launch.py "recentre_on_object" "launch arguments for the new settings"
+marker packages/target_pose_ros/target_pose_ros/target_pose_node.py "_pose_frame" "plate pose frame follows the depth camera_info (docs/11 section 2)"
+marker packages/target_pose_ros/target_pose_ros/plate_geometry.py "def " "plate geometry module"
+marker launch/scripts/add_table_box.py "def box_for" "exact table box (docs/11 section 4)"
+marker $M "LIFT_CARTESIAN" "2026-10-12 update: straight lift (docs/06 section 5)" warn
+marker $M "PLACE_HEIGHT_MODE" "2026-10-12 update: automatic place height (docs/06 section 5)" warn
+marker launch/start_pipeline.sh "forward_passes" "5 forward passes by default (docs/11 section 3)" warn
+marker launch/start_pipeline.sh "recentre_on_object" "re-centring on by default (docs/11 section 3)" warn
+marker launch/start_pipeline.sh "recentre_depth_below_top_m" "closing depth default (docs/11 section 3)" warn
+marker launch/scripts/move_to_pose_90deg.py "START_POSE" "selectable start pose; the lab machine runs initial (docs/11 section 5). A warning after collect_from_workspace.sh means the lab copy was not collected" warn
+marker config_snapshots/agx_arm_moveit/agx_arm.srdf.xacro 'name="initial"' "named arm pose 'initial' (docs/11 section 5). A warning after collect_from_workspace.sh means the lab copy was not collected" warn
+same_file() {   # same_file A B WHY : the read-only reference copy must equal the package snapshot
+  [ -f "$HERE/$1" ] && [ -f "$HERE/$2" ] || return
+  if cmp -s "$HERE/$1" "$HERE/$2"; then ok "$2 equals $1"; else warn "$2 differs from $1  ($3)"; fi
+}
+same_file packages/contact_graspnet_ros/contact_graspnet_ros/contact_graspnet_node.py reference_copies/contact_graspnet_ros/contact_graspnet_ros/contact_graspnet_node.py "run maintainer/sync_packages_from_workspace.sh and collect_from_workspace.sh"
+same_file packages/gsam2_ros/gsam2_ros/gsam2_segmentation_node.py reference_copies/gsam2_ros/gsam2_ros/gsam2_segmentation_node.py "run maintainer/sync_packages_from_workspace.sh and collect_from_workspace.sh"
+same_file packages/nero_mtc_task/nero_mtc_task/mtc_pick_and_place.py reference_copies/nero_mtc_task/nero_mtc_task/mtc_pick_and_place.py "run maintainer/sync_packages_from_workspace.sh and collect_from_workspace.sh"
+
 echo; echo "== key constants as collected (compare with docs/06_tuning_reference.md) =="
 if [ -f "$HERE/$M" ]; then
-  grep -nE "^(MAX_TILT_DEG|MAX_CANDIDATES_IN_TASK|CGN_GRIPPER_DEPTH|OUR_FINGER_REACH|GRASP_OFFSET_X|GRASP_OFFSET_Y|PREGRASP_OFFSET_M|PLACE_Z_CLEARANCE_M|APPROACH_MIN|LIFT_MIN|RETREAT_MIN|ARM_MAX_VEL|ARM_MAX_ACC|GRIPPER_MAX_VEL|GRIPPER_MAX_ACC)\b" "$HERE/$M" | sed 's/^/    /'
+  grep -nE "^(PLATE_THICKNESS_M|PLACE_HEIGHT_MODE|PLACE_CONE_DEG|LIFT_CARTESIAN|MAX_TILT_DEG|MAX_CANDIDATES_IN_TASK|CGN_GRIPPER_DEPTH|OUR_FINGER_REACH|GRASP_OFFSET_X|GRASP_OFFSET_Y|PREGRASP_OFFSET_M|PLACE_Z_CLEARANCE_M|APPROACH_MIN|LIFT_MIN|RETREAT_MIN|ARM_MAX_VEL|ARM_MAX_ACC|GRIPPER_MAX_VEL|GRIPPER_MAX_ACC)\b" "$HERE/$M" | sed 's/^/    /'
 fi
 CAL="$HERE/config_snapshots/calibration/nero_eye_to_hand_calib.calib"
 if [ -f "$CAL" ]; then
