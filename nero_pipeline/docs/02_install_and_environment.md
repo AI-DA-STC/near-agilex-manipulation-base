@@ -170,6 +170,9 @@ rm -rf ~/agx_arm_ws/build/nero_mtc_task ~/agx_arm_ws/install/nero_mtc_task
 cd ~/agx_arm_ws && colcon build --symlink-install --packages-select nero_mtc_task && source install/setup.bash
 ```
 
+**Helper scripts started by the nodes (added 2026-10-14).** `gsam2_ros` and `contact_graspnet_ros` start their worker and one-shot inference scripts from **outside** the package, by default from `~/gsam2_ros_scripts/` and
+`~/contact_graspnet_ros_scripts/`. Copy them there after building ([docs/11](11_perception_workers_frames_recentring.md) section 1.3 has the commands); [docs/12](12_current_run_sequence.md) part 1 does it together with the build.
+
 ## 2.9 Launch folder
 
 ```bash

@@ -71,7 +71,7 @@ How the executed speed is set (and what does **not** set it):
 | `source_prompt` | `gsam2_ros` parameter; set in `launch/start_pipeline.sh` | `a green cube.` (earlier `a carrot.`, `a roll of tape.` were tried) | What to pick. Must end with a period. An article ("a ...") worked better than none |
 | `target_prompt` | same | `plate.` | The place target |
 | `box_threshold` | `gsam2_ros` (default 0.4 in code and launch file) | lowered live during testing (0.25 was used) | Detection confidence cutoff. Do not go below about 0.2: false boxes on other objects |
-| `forward_passes` | `contact_graspnet_ros` inference script | 5 | Number of network passes; 1 pass found no grasps on thin objects |
+| `forward_passes` | `contact_graspnet_ros` node parameter (fixed when the worker starts) and launch argument | **5 since 2026-10-14**. Before that the pipeline ran with the inference script's default of **1** ([docs/07](07_development_log.md) corrections, item 10) | Number of network passes; 1 pass found no grasps on the test cube |
 | `z_range` | same | `[0.2, 1.8]` | Depth range kept (metres) |
 | camera intrinsics | read from `/topcam/depth/camera_info` | fx = fy = 488.78, cx = 317.81, cy = 216.85 (640x480, aligned depth) | |
 
@@ -95,3 +95,66 @@ The internal object name in MTC stays `carrot` whatever you pick; that is only a
 See the table at the end of `docs/05_run_real_arm.md` (`REAL_ARM`, `TABLE_TOP_Z`, `ARM_WAIT`, `JOINT_STATES_TOPIC`,
 `HOME_MOVE_SECONDS`, `MTC_EXECUTE`). The grasp watcher also reads `GRASP_VIEW_PY` (the python that has Open3D;
 default `~/miniconda3/envs/contact_graspnet/bin/python`).
+
+## 5. Parameters and constants added 2026-10-12 to 2026-10-14
+
+Background and evidence: [docs/11](11_perception_workers_frames_recentring.md). "Default" is the value in the code; "launch default" is what `start_pipeline.sh` passes on the lab machine.
+
+### 5.1 `gsam2_ros` (node `/gsam2_segmentation_node`)
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `use_worker` | `true` | Use the persistent worker. `false` (live) = the old one process per prompt |
+| `worker_script` | `~/gsam2_ros_scripts/grounded_sam2_worker.py` | The worker that is started once |
+| `worker_timeout_sec` | `120` | After this the worker is stopped and the old method is used for that call |
+
+### 5.2 `contact_graspnet_ros` (node `/contact_graspnet_node`)
+
+| Parameter | Default | Launch default | Meaning |
+|---|---|---|---|
+| `use_worker`, `worker_script` (`~/contact_graspnet_ros_scripts/contact_graspnet_worker.py`), `worker_timeout_sec` | `true`, see left, `120` | | As for gsam2 |
+| `forward_passes` | `1` | `5` (`CGN_FORWARD_PASSES`) | Network batch size; **read only when the worker starts** (restart the node to change it) |
+| `retries_if_empty` | `2` | `2` | Worker only: predict again up to this many times when a prediction has no grasps |
+| `recentre_on_object` | `false` | `true` (`CGN_RECENTRE`) | Move every grasp's closing centre onto the middle of the object's top face, keeping its orientation. Read on every call: `ros2 param set /contact_graspnet_node recentre_on_object true` |
+| `recentre_depth_below_top_m` | `0.02` | `0.006` (`CGN_DEPTH`) | How far below the object's top surface the closing centre is put. The fingertips reach about 3.5 cm beyond the closing centre ([docs/11](11_perception_workers_frames_recentring.md) section 3.3): **a deep value puts the fingertips into the table**. Also read on every call |
+| `recentre_max_offset_m` | `0.05` | | Grasps whose closing centre is farther than this sideways from the middle are dropped |
+| `camera_frame` | `""` = automatic | | Frame the grasp poses are labelled with: the depth `camera_info` frame. A name forces a frame |
+
+Closing-depth rule of thumb (inferred, for a vertical grasp): `fingertip height above the table = (object height - depth) - 0.035`. Keep it at least 0.005 m. For the 4.8 cm cube: 0.020 gives about -0.007, 0.006 gives about +0.007.
+
+### 5.3 `target_pose_ros` (node `/target_pose_node`)
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `camera_frame` | `""` = automatic | Frame the plate pose is labelled with (the depth `camera_info` frame) |
+| `center_mode` | `hull` | How the plate centre is computed: `hull` (robust to holes), `mean` (original), `circle`, `bbox` |
+| `z_mode` | `floor` | How the plate height is read: `floor` (median depth near the centre), `top_surface` (original: the single closest pixel), `centroid` |
+
+`launch/tools/plate_center_check.py` draws each centre estimate on the camera image.
+
+### 5.4 `mtc_pick_and_place.py` constants added by the 2026-10-12 update
+
+Defaults **as shipped**; the lab values are printed by `maintainer/verify_repo.sh`. Every behaviour has a switch to restore the old one.
+
+| Constant | Default | Meaning |
+|---|---|---|
+| `LIFT_CARTESIAN` | `True` | Lift and retreat are straight vertical lines (were joint-space planner moves that wandered) |
+| `LIFT_MIN`, `LIFT_MAX` | `0.05`, `0.10` | Lift distance range, metres (were 0.02 and 0.05) |
+| `TRANSIT_JOINT_INTERP_FIRST` | `True` | Transit tries smooth joint-space interpolation first and the sampling planner only as a fallback |
+| `PLACE_HEIGHT_MODE` | `"auto"` | The release height is computed: pad height at the grasp + `PLATE_THICKNESS_M` + `PLACE_RELEASE_GAP_M` + `OUR_FINGER_REACH` (the plate's own height cancels). Falls back to the fixed height if the result is out of range |
+| `PLATE_THICKNESS_M` | `0.02` | **A cautious guess: measure it** (table to the plate's inner floor) |
+| `PLACE_RELEASE_GAP_M` | `0.01` | Gap between the object's bottom and the plate floor at release |
+| `PLACE_DESCEND`, `PLACE_HOVER_M` | `True`, `0.06` | Hover this far above the release point, then straight down |
+| `PLACE_CONE_DEG` | `20` | Release orientation cone (was 32) |
+| `PLACE_OFFSET_X`, `PLACE_OFFSET_Y` | `0.0` | Manual nudge of the release point |
+| `PHASE_SPEED` | all `1.0` | Optional per-phase speed multipliers (`connect`, `approach`, `lift`, `transit`, `descend`, `retreat`) on top of `ARM_MAX_VEL` |
+
+The RViz preview of a plan plays the untimed plan and looks fast; the executed trajectory is retimed to `ARM_MAX_VEL` (0.1 rad/s per joint, about 6 degrees per second) and the gripper to `GRIPPER_MAX_VEL`.
+
+### 5.5 Start pose and table box
+
+* `launch/scripts/move_to_pose_90deg.py` has a table of named poses and the switch `START_POSE` (`initial` or `pose_90deg`). `launch/tools/add_initial_pose.py` was applied on the lab machine (operator report 2026-10-14) and the pipeline starts from `initial` every time. The values are **in the script, not read from the SRDF**: keep both in step.
+  The `initial` values and the joint-4 limit warning are in [docs/11](11_perception_workers_frames_recentring.md) section 5.
+* `launch/scripts/add_table_box.py --show | --top_z Z [--x_min -1.10 --x_max -0.20 --y_half 0.70 --thickness 0.05] | --remove`: the table box with its top face **exactly** at `Z` in front of the arm.
+  The real table is at `Z = 0` in `base_link` (operator report). The older `add_table_collision.py` puts the top face 0.095 m above `TABLE_TOP_Z` (inferred, [docs/11](11_perception_workers_frames_recentring.md) section 4).
+

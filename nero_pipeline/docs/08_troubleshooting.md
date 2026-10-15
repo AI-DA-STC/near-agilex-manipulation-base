@@ -43,7 +43,7 @@ lsmod | grep gs_usb                                                             
 | `Mask shape ... != depth shape` in `contact_graspnet_ros.log` | Camera started without `depth_registration:=true` | Use the camera command in [docs/02](02_install_and_environment.md) section 2.5 |
 | The run script stops with `!!! <service> FAILED - stopping so the previous detection is not reused` | A perception step answered `success=False` | Read the message printed above that line; fix the cause (detection, view); run again |
 | A rerun appears to replay the previous solution | **(likely)** A step failed silently and old latched poses (`/grasp_poses_transformed`, `/target_pose_transformed`) were reused; or an old `mtc_pick_and_place` process is still alive | Make sure the guard above is installed (`grep -c call_checked ~/nero_pipeline_launch/run_pick_and_place.sh`); `pkill -f mtc_pick_and_place`; with the grasp watcher running, a new run must print a fresh `candidates:` line |
-| No grasps returned | `forward_passes` too low, object outside `z_range`, object too small | `forward_passes` is 5; check the depth in the mask ([docs/10](10_grasp_quality_investigation.md)) |
+| No grasps returned | `forward_passes` too low, object outside `z_range`, object too small | `forward_passes` is 5 since 2026-10-14 (before that the pipeline ran with 1, [docs/07](07_development_log.md) correction 10); an empty prediction is also retried (`retries_if_empty`); check the depth in the mask ([docs/10](10_grasp_quality_investigation.md)) |
 | Grasps beside the object | **(likely)** MTC received only steeply tilted candidates (the near-vertical ones rank low by score) | Check that `usable.sort(` is in `mtc_pick_and_place.py` (the verifier requires it) and that you rebuilt the package; run `launch/tools/grasp_watch.py` and read `tilts given to MTC`; the near-vertical ones must come first. See [docs/10](10_grasp_quality_investigation.md) section 7 |
 
 ## D. Planning (`Failing stage(s):` and the task tree)
@@ -105,3 +105,23 @@ FNR==1{n=sqrt(x*x+y*y+z*z+w*w)}
   if(q&&$1=="z:"){printf "    z: %.12f\n",z/n;next} if(q&&$1=="w:"){printf "    w: %.12f\n",w/n;next}
   print }' $C $C > $C.new && mv $C.new $C
 ```
+
+## H. Perception workers, camera frames and start-up tooling (added 2026-10-14)
+
+Background in [docs/11](11_perception_workers_frames_recentring.md). The clean-slate blocks in [docs/12](12_current_run_sequence.md) already include the daemon restart.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `ros2 node list` or `ros2 topic list` ends with `Fault: ... !rclpy.ok()`; the real launcher prints `NO feedback from the arm - not starting MoveIt` although `arm.log` says `feedback is ready`; RViz never opens | The ROS 2 daemon is stuck, so the launcher's feedback check (a ROS CLI command in a retry loop) fails every time (inferred: the same commands worked after a restart of the daemon) | `ros2 daemon stop; sleep 2; ros2 daemon start`, then start again |
+| Driver: `Timed out waiting for low-speed feedback before enabling`, then `NO feedback`; the CAN interface is reported `UP` | The arm is not answering. `state UP` only means the adapter is configured | `timeout 3 candump can_piper \| wc -l` must show many frames (ids 2A5 to 2A9, 251 to 257, 261 to 267 normally); check power and cable; power-cycle (the arm may sag if left folded). The cause on 2026-10-13 was not found |
+| Depth image `640x400` and `fx=476.9` instead of `640x480` and `fx=488.8`; grasps beside the object; the grasp node's log has `Mask shape ... != depth shape` | The camera started without depth registration; the node resizes the mask onto the other camera's pixels | Unplug and replug the camera's USB cable, restart ([docs/11](11_perception_workers_frames_recentring.md) section 2.5) |
+| `ros2 param get /contact_graspnet_node recentre_on_object` says `Parameter not set` | The running node is the old one: the update is not installed, or an old copy is loaded | Run the which-file check in [docs/11](11_perception_workers_frames_recentring.md) section 1.4; remove `build/<pkg>` and `install/<pkg>` and rebuild |
+| `Found N solution(s).` and the terminal never returns | By design: the node idles to keep the plan in RViz | Ctrl+C. A script that runs the plan-only must stop the node itself |
+| `pregrasp IK 0-flip (0/1): no IK found` sometimes and not other times | Intermittent: random grasp draws, one orientation per candidate; **not** caused by the table | Run it again. `launch/tools/ik_probe.py` shows which candidates MoveIt can reach |
+| `pregrasp IK ...: eef in collision: gripper_base - table_surface` | A named collision of the gripper base with the table box | Read the box with `add_table_box.py --show`; check the closing depth |
+| Every plan fails after the table box was raised | The old 2 m x 2 m box overlaps the arm's own base | Use `add_table_box.py` (box in front of the arm only) |
+| The 3D grasp window never opens | `grasp_watch.py` opens it when `/grasp_poses_transformed` arrives, i.e. after `/pose_transform/transform_all` | Run the whole chain (or step 4); the watcher must already be running |
+| The segmentation window stays grey | The images are published once per `/gsam2/segment` call; a viewer started afterwards misses them | Start `demo_view.py` first, then run the chain |
+| `cv2.error ... The function is not implemented` from `demo_view.py` | This OpenCV has no window support | `ros2 run rqt_image_view rqt_image_view /gsam2/annotated_source` (and `_target`) |
+| `find ~ -maxdepth 4 -name reach_check.py` finds nothing | The file is five levels below `~`, and `find` does not follow the `~/nero_pipeline_launch` symlink | `find -L ~/near-agilex-manipulation-base ~/nero_pipeline_launch -maxdepth 5 -name reach_check.py` |
+| An edit in `src/` has no effect after `colcon build` | A stale plain copy in `build/` or `install/` ([docs/02](02_install_and_environment.md) section 2.8) | Remove them and rebuild; check with the which-file block |

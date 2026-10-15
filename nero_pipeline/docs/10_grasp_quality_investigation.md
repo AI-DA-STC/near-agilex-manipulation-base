@@ -79,3 +79,20 @@ Experiments 1 to 10 isolate the network side; experiment 12 isolates the rest.
 * **Order of checks next time:** (1) which candidates does MTC receive and what are their tilts (`launch/tools/grasp_watch.py`, `tilt_table.py`); (2) does the arm follow the generated grasp (watcher at the moment of closing);
   (3) only then the inputs and the network.
 * **Open and optional:** a controlled comparison with the sort switched off; whether the 2x upsampling test (H1) improves proposal quality anyway; whether the near-vertical grasps are also the best-scoring after upsampling.
+
+## 8. Update 2026-10-13 to 2026-10-14: what a second investigation found
+
+After [section 7](#7-outcome-and-lessons) the grasps looked fine on the operator's scene, then went "beside the object" again on a small cube. The hypotheses below were tested with the tools in `launch/tools/`
+(`pregrasp_check.py`, `cgn_openings.py`, `cgn_probe.py`, `mask_depth_check.py`). Numbers and the full story: [docs/11](11_perception_workers_frames_recentring.md).
+
+| Hypothesis | Test | Result |
+|---|---|---|
+| Mask and depth image are not aligned | Slide the mask over the depth image, overlap score | **Rejected**: aligned to about 4 mm |
+| Contact-GraspNet opens too wide, so the closing centre lands beside the object | Predicted opening per grasp | **Rejected**: the openings are narrow (0.9 to 1.7 cm on a 5 cm cube) |
+| The object is seen from the side at the image edge | Move the cube under the camera | **Rejected** as the cause of the rim pinches (same result) |
+| Hand-eye calibration | Reasoning: it moves grasps and cloud together | Cannot cause an offset between them, **unless** the two use different frames (see below) |
+| Contact-GraspNet proposes rim pinches for a 5 cm box | Count grasps near the top-face middle | **Confirmed**: none within 1.5 cm, closest 1.8 cm; remedy: re-centring (optional parameter) |
+| The grasp and plate poses use a different frame from the cloud | Compare the frame labels; switch the label | **Confirmed**: fixed depth-frame label vs colour-frame data; shift 3.3 cm to 0.5 cm after the fix |
+| One forward pass is enough | Probe with 1, 3 and 5 passes | **Rejected**: 1 pass found nothing on the test cube, 5 passes found grasps |
+
+The point-density hypothesis of section 4 and the 2x upsampling test were not needed again and were **not** run. The lesson of stage 12 repeats: look at what is handed to the next stage (here: the frame label) before blaming the network.

@@ -53,6 +53,11 @@ timeout 3 candump can_piper | head -3        # frames must appear
 
 ## 3. Start (four terminals)
 
+> **Update 2026-10-14:** the sequence that was used on the real arm after the perception changes is in [docs/12](12_current_run_sequence.md) part 4. It differs from the one below in four ways:
+> `unset TABLE_TOP_Z` and then the **exact table box** (`launch/scripts/add_table_box.py --top_z 0.0`) instead of the built-in box, whose top face is not where its comment says ([docs/11](11_perception_workers_frames_recentring.md) section 4);
+> a readiness check for the two persistent workers; a check that the camera's depth is registered (depth `640x480`); and the grasp test with the `FINGER TIPS` check before anything moves.
+> The safety protocol in section 1 applies unchanged.
+
 **Terminal 1: launch everything**
 
 ```bash
@@ -156,3 +161,6 @@ ros2 service call /control_enable std_srvs/srv/SetBool "{data: true}"
 | `JOINT_STATES_TOPIC` | before `run_pick_and_place.sh` and the watcher | Joint state topic read by `move_to_pose_90deg.py` | `/feedback/joint_states` |
 | `HOME_MOVE_SECONDS` | before `run_pick_and_place.sh` | Duration of the step-0 move | `15` |
 | `MTC_EXECUTE` | before `run_pick_and_place.sh` | `y` executes the plan; anything else plans only | `y` for execution |
+| `START_POSE` | before `run_pick_and_place.sh` | Start pose for step 0: `initial` or `pose_90deg`. **The lab machine runs `initial`** (operator report 2026-10-14), so the pipeline starts from it every time. Needs the updated `move_to_pose_90deg.py` | `initial` |
+| `CGN_FORWARD_PASSES`, `CGN_RECENTRE`, `CGN_DEPTH` | before `start_pipeline.sh` | Override the grasp node's launch defaults: 5 passes, re-centring `true`, closing depth 0.006 m ([docs/06](06_tuning_reference.md) section 5) | unset |
+| `ASK_PROMPTS` | before `run_pick_and_place.sh` | Only with the future-work prompt question (not installed): `0` skips it, `force` asks even without a terminal | n/a |

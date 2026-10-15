@@ -7,6 +7,9 @@ understanding of what blocks a reliable system.
 > before that report; read them as *what to do if grasp accuracy regresses* and as *why it is worth making the fix reproducible*,
 > not as open blockers. Safety (item 3) is unchanged.
 
+> **Update 2026-10-14:** perception is fast, a wrong frame label was fixed (grasps and plate had been about 3.3 cm off sideways), grasps are re-centred on the object, and the operator reports that the real arm worked with the corrected grasp, place and table collision
+> ([docs/11](11_perception_workers_frames_recentring.md)). Item 2 below now matters more (the calibration was tuned while the frame label was wrong), and item 6 is partly answered (the real table is at z = 0). New open items are in **P4**.
+
 ## P0. Highest priority (items 1 and 2 were reported fixed, see the note above; item 3 is open)
 
 ### 1. Grasps beside the object (fixed by sorting candidates most top-down first)
@@ -58,6 +61,24 @@ understanding of what blocks a reliable system.
 * AnyGrasp integration once the licence arrives.
 * A second place target type, multiple objects, re-grasp on failure.
 * Closed-loop correction with the arm camera.
+
+## P4. Added 2026-10-14
+
+| # | Issue | Proposed work |
+|---|---|---|
+| 17 | `launch/scripts/add_table_collision.py` builds a box 0.2 m thick, so its top face is 0.095 m above `TABLE_TOP_Z`, with a 2 m x 2 m footprint that overlaps the arm's base; `start_pipeline.sh` still calls it ([docs/11](11_perception_workers_frames_recentring.md) section 4) | Call `add_table_box.py --top_z 0.0` instead (or fix the script); read the live box back with `--show` and record it |
+| 18 | The fingers' collision geometry is unverified (the canary named only `gripper_base`) | A canary box that only the fingers can touch (top between the hand-base height and the tip height at the grasp); add finger collision links if they are missing |
+| 19 | The cube and the plate are not in the planning scene | Add them as collision objects (the object is already attached under the name `carrot` at pick) |
+| 20 | Intermittent `no IK found`; MTC tries one orientation per candidate (`orig` is off on purpose, one gripper direction) | Several roll angles per candidate (a compact object can be grasped at any roll; `ik_probe.py` sweeps them), more than six candidates, or a start pose with more IK freedom. Keep the one-direction policy in any roll set |
+| 21 | Contact-GraspNet proposes rim pinches for boxes | A geometric top-down candidate for compact objects (centre and orientation from the mask's top face) as an extra candidate; or another grasp network (AnyGrasp, see item 1) |
+| 22 | An unregistered depth image is silently accepted (the mask is resized onto it) | Refuse with a clear message when mask and depth shapes differ, or reproject the mask through the depth-to-colour TF |
+| 23 | The closing depth is a constant (0.006 m) tuned for a 4.8 cm box | Derive it from the object's height and the finger geometry; check the fingertip clearance in the node |
+| 24 | The hand-eye calibration and the table height were not re-verified numerically after the frame change | A touch test with a ruler (item 2); record the numbers |
+| 25 | The silent arm on 2026-10-13 was not diagnosed | Next time record the number of CAN frames in 3 s (`candump can_piper`), the driver log and the power state |
+| 26 | A stuck ROS daemon, a camera without registration and stale build copies each cost time | Add the three checks to `start_pipeline.sh` (daemon health, depth `640x480`, which-file check) and refuse to start otherwise |
+| 27 | The prompt question at run start is built but not installed | Install `future_work/ask_prompts` ([future_work/README.md](../future_work/README.md)) and use it for a few runs |
+| 28 | Re-centring and the 0.006 depth were tested on one 5 cm box only | Test other objects (a mug, a roll of tape) and record closing heights and results |
+| 29 | The first move of every session (`home` to `initial`) is a straight line in joint space without collision checking; only a geometric proxy (closest arm parts 0.229 m apart) says it is safe ([docs/11](11_perception_workers_frames_recentring.md) section 5). Joint 4 of `initial` is at its limit unless `--joint4 2.08` was used | Plan that move with MoveIt (or add a via point), and give joint 4 margin; until then do the RViz Plan & Execute move once per session ([docs/12](12_current_run_sequence.md) 4.6) |
 
 ## Questions for the supervisor
 

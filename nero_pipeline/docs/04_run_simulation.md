@@ -1,5 +1,8 @@
 # 04. Run in simulation
 
+> **Update 2026-10-14:** the commands that work now (persistent workers, exact table box, camera-frame check, demo windows) are in [docs/12](12_current_run_sequence.md) part 3. They replace the sequence below where they differ;
+> the background is in [docs/11](11_perception_workers_frames_recentring.md). In simulation use `unset REAL_ARM TABLE_TOP_Z JOINT_STATES_TOPIC HOME_MOVE_SECONDS ARM_WAIT` before starting.
+
 Always do this first. The simulation uses MoveIt's fake hardware: the arm model moves in RViz, nothing physical moves,
 and a mistake costs nothing.
 

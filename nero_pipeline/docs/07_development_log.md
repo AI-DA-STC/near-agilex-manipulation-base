@@ -24,6 +24,8 @@ made during the project and later turned out to be wrong.
 | Oct 7 to 8 | 10. Grasp-quality investigation | Inputs verified good; network behaviour on the sample scenes good; cause found afterwards: candidate selection (stage 12) |
 | Oct 8 | 11. Inspection tools, candidate ordering, reach limit | Grasp watcher/viewer; tilt sort; place failures explained by reach |
 | Oct 8 | 12. Grasps working | The operator attributes it to sorting candidates most top-down first |
+| Oct 12 | 13. Straight lift, smooth transit, automatic place height, centred plate | Update to `mtc_pick_and_place.py` and `target_pose_ros`; built and tested with stand-ins |
+| Oct 13 to 14 | 14. Fast perception, the frame label, re-centring, the table box | Workers (52 s to 5 s), a wrong frame label found and fixed (3.3 cm), grasps re-centred, table box examined, real arm worked (operator report) |
 
 ---
 
@@ -237,6 +239,44 @@ neither needed nor tested.
 
 ---
 
+## Stage 13. Straight lift, smooth transit, automatic place height, centred plate (Oct 12)
+
+An update to `mtc_pick_and_place.py` and `target_pose_ros`; every behaviour has a switch at the top of the script ([docs/06](06_tuning_reference.md) section 5.4):
+
+* lift and retreat are straight vertical lines, 5 to 10 cm (before: joint-space planner moves that wandered, 2 to 5 cm);
+* transit tries smooth joint-space interpolation first, the sampling planner only as a fallback;
+* the release height is **computed from the grasp** (pad height at the pick + plate thickness + gap + finger reach, so the plate's own height cancels), hover 6 cm above, then straight down; release cone 20 degrees (was 32);
+* the plate pose: height = median depth near the centre (before: the single closest pixel, i.e. rim or noise), centre = convex-hull centroid (before: mean of all mask pixels), with readable diagnostics in the `/target_pose/extract` answer;
+* tools: `plate_center_check.py`, an updated `grasp_watch.py`.
+
+Built and checked with stand-ins; **not tested on the robot when it was written**. The default `PLATE_THICKNESS_M = 0.02` is a guess to be measured.
+
+---
+
+## Stage 14. Fast perception, the frame label, re-centring, the table box (Oct 13 to 14)
+
+What happened, in order, including the wrong turns ([docs/11](11_perception_workers_frames_recentring.md) has the numbers):
+
+1. **Why is segmentation slow?** One `/gsam2/segment` call took 52 s. A timing version of the inference script showed that about 12 of every 15 s inside the script is loading models, and `conda run` adds about 5 s, twice per call. Fix: persistent workers
+   for `gsam2_ros` and then `contact_graspnet_ros` (52 s to 5.4 s as seen from the command line). The first idea ("does it track until the value is stable?") was wrong: there is no tracking.
+2. **Start-up trouble (Oct 13).** `ros2 node list` crashed with `Fault: !rclpy.ok()`: the ROS daemon was stuck. `launch_arm_real.sh` checks for arm feedback with a ROS CLI command, so it reported `NO feedback from the arm - not starting MoveIt` although the driver said feedback was ready, and RViz never opened
+   (it starts with MoveIt). Restarting the daemon fixed that. Later the driver itself timed out waiting for the arm (`Timed out waiting for low-speed feedback before enabling`) while the CAN interface was reported `UP`; the operator set that aside to work in simulation, the CAN frame check was not recorded, and the cause was **not found**.
+   The camera also once came up **without** depth registration (depth 640x400), which gives wrong grasps (the mask is resized onto a different camera's pixels); a USB replug fixes it.
+3. **Grasps beside the cube.** With `forward_passes` 5 the test cube produced grasps at all (2 to 9 per call; 0 in every attempt at one pass, which is what the pipeline had been running with); after the depth registration was restored, 28 to 49 per call. Tools were built and several explanations were tested and **rejected**: mask and depth not aligned (they are, to about 4 mm),
+   openings too wide (they are narrow), the object seen from the side (moving it under the camera changed nothing). What remained: Contact-GraspNet proposes **rim pinches** for a 5 cm box, so the grasps were re-centred on the object (optional parameter).
+4. **The frame label.** After re-centring, all grasps shared one closing point but it was still 3.3 cm beside the object, the same shift as before. A constant shift independent of the grasp points at the frame, not the network. The grasp node and the plate node labelled their output with a fixed depth frame; the data was in the colour frame (registered depth).
+   Reading the frame from the camera info removed the shift (3.3 to 0.5 cm), and the plate moved by the same 3.3 cm. **Operator report:** the real arm then worked well.
+5. **Table box.** The operator had once lowered the box because planning kept failing. A deliberately too-high box was rejected with a named collision (so checking works), and reading the script showed the box is 0.2 m thick, so its top face is 9.5 cm above `TABLE_TOP_Z` (inferred; the live value was not recorded).
+   A tool for an exact, front-of-the-arm box was built. The real table is at z = 0 (operator report); the camera sees +0.008.
+6. **Fingertips.** From the finger geometry, closing 2 cm below the top of a 4.8 cm cube would put the tips into the table; the default depth became 0.006 m (inferred, not measured on the arm).
+7. **Planning.** `no IK found` appeared with the table at several heights **and with no table**, so it is intermittent and unrelated to the table. A fast IK probe was built. The operator keeps one gripper direction (`orig` variant stays off).
+8. **Start pose `initial`** (applied on the lab machine: the pipeline starts from it every time, operator report), **demo window**, **prompt question** (not installed): see [docs/11](11_perception_workers_frames_recentring.md) and [future_work/](../future_work/README.md).
+
+**Lessons.** (a) A constant offset between two things in the same cloud is a frame problem, not a network problem; look at the labels before the model. (b) When a symptom "went away" after an experiment, check what else changed (a single lucky plan was first read as proof about the table).
+(c) A tool that waits for a script to exit needs to know that a successful plan-only never exits. (d) Measure the live scene (`add_table_box.py --show`) before reasoning about it.
+
+---
+
 ## Corrections: statements made during the project that were later found wrong
 
 This list is here so nobody relies on them.
@@ -252,9 +292,23 @@ This list is here so nobody relies on them.
 | 7 | Checking for arm feedback once with `ros2 topic echo --once` | The command exits immediately if the topic does not exist yet; use a retry loop |
 | 8 | "Fixed offset in x will correct the grasps" | Only partly: the error depends on the tilt direction; the calibration is the real fix |
 | 9 | A mistaken test result claimed a 27 mm error in the upsampling script | It was a flaw in the test (comparing off-centre pixels). The script's 3D positions agree to 0.13 mm (median) |
+| 10 | `forward_passes` is 5 (docs 06, 07 stage 1 and 08 said so) | The committed node never passed `--forward_passes` and the inference script's default is **1**, so the pipeline ran with one pass. Five passes became the default through a launch argument on 2026-10-14 |
+| 11 | `cy = 216.8` is suspicious for a 480-row image (a suspicion raised during the investigation) | It is the **colour** camera's intrinsic, correct for depth that is registered to the colour image (see item 3 above) |
+| 12 | A hand-eye calibration error cannot cause an offset between the grasps and the object in the same point cloud | True only if both use the same frame. The grasp and plate poses were labelled with the depth frame while the data lived in the colour frame: a constant 3.3 cm sideways shift ([docs/11](11_perception_workers_frames_recentring.md) section 2) |
+| 13 | The table box's top face is at `TABLE_TOP_Z` (comment in `add_table_collision.py`, `launch/README.md`) | The code makes the box 0.2 m thick centred at `TABLE_TOP_Z - 0.005`: the top face is at `TABLE_TOP_Z + 0.095` (inferred; live value not recorded) |
+| 14 | `no IK found` at the pregrasp stage is caused by the table box (hypothesis during testing, 2026-10-14) | A run with no table in the scene failed too; it is intermittent (random grasp draws, one orientation per candidate) |
+| 15 | Closing the gripper 2 cm below the top of the cube is fine | For a 4.8 cm cube the fingertips would reach the table (inferred); default depth 0.006 m |
+| 16 | A test loop can run `run_pick_and_place.sh` repeatedly and wait for each run to exit | A successful plan-only never exits (it idles to keep the plan in RViz); a loop must watch the output for `Found N solution(s)` or `Failing stage` and stop the node itself |
+| 17 | `collect_from_workspace.sh` records only the *local changes of the umbrella repository* (patch in `patches/`) | Once the umbrella tracked `nero_pipeline/`, it also swallowed every uncommitted change inside this folder: a rehearsal wrote a 158,978-byte patch instead of 261 bytes. The check now excludes `nero_pipeline/` |
 
-## State at the end of this log (2026-10-08)
+## State at the end of this log (2026-10-14)
+
+* Working: simulation and the real arm end to end; the pipeline starts from the named pose `initial` every time and uses the exact table box tool (operator report); segmentation and grasp detection take seconds (persistent workers); grasp and plate poses use the camera's own frame; grasps are centred on the object (re-centring, one 5 cm box tested);
+  **operator report:** the real arm picked and placed well with the corrected grasp, place and table collision.
+* Open: intermittent `no IK found` (re-run); fingers' collision geometry and the real fingertip clearance are unverified; the cube and plate are not in the planning scene; the hand-adjusted calibration should be re-verified now that the frame label changed;
+  the root cause of the silent arm on 2026-10-13 is unknown; the old table script still builds a thick box; no physical e-stop. Details and priorities: [docs/09](09_known_issues_and_next_steps.md).
+
+### Earlier state (2026-10-08)
 
 * Working: simulation end to end; real arm executes planned motions at 0.1 rad/s; perception chain; planning with candidates sorted by tilt; grasps land on the object (operator report).
-* Open: a controlled on/off comparison of the sort (optional), a clean recalibration, place reach (plate under about 0.55 m), safety hardening (no physical e-stop), reproducible install.
-  Details and priorities: `docs/09_known_issues_and_next_steps.md`.
+* Open then: a controlled on/off comparison of the sort (optional), a clean recalibration, place reach (plate under about 0.55 m), safety hardening (no physical e-stop), reproducible install.

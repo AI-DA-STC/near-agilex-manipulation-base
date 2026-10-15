@@ -25,6 +25,20 @@ Read the output top to bottom:
 | `DIFFERS ... NOT copied` | Your lab copy of a tool differs from the tested reference in this folder | Run the `diff` command it prints and decide which is right. The reference copies were tested; the lab copy may be older or contain an edit |
 | `uncommitted changes in <name>` | A repository in the workspace has local edits | If `<name>` is one of **our** packages: commit and push it (section 3). If it is a third-party repository (`agx_arm_ros`, ...): the patch in `patches/` is how we preserve the edits |
 
+**Order and the umbrella patch (added 2026-10-14).** The check of the umbrella repository (`~/near-agilex-manipulation-base`) now ignores this folder itself. Before, once `nero_pipeline/` was tracked, `patches/near-agilex-manipulation-base_local_changes.patch`
+swallowed every uncommitted change inside it (158,978 bytes instead of 261 in a rehearsal). It is still tidier to commit the documentation, package and tool changes **before** running the collect script and to commit what the script changed as a separate commit (section 4 shows the split).
+
+### 1b. Refresh the package snapshots from the workspace (added 2026-10-14)
+
+`collect_from_workspace.sh` refreshes the launch files, tools and a few reference copies. The **five package snapshots** in `packages/` are refreshed by a second script, so
+they hold what is really installed and not a hand-made copy:
+
+```bash
+bash maintainer/sync_packages_from_workspace.sh
+```
+
+Read its `DIFFERS` lines: they mean a helper script installed outside the workspace (`~/gsam2_ros_scripts/`, `~/contact_graspnet_ros_scripts/`) is not the same as the package copy.
+
 ## 2. Verify the folder
 
 ```bash
@@ -32,7 +46,13 @@ bash maintainer/verify_repo.sh
 python3 maintainer/check_docs.py
 ```
 
-Both must end with `0 FAIL` / no problems. `WARN` lines are acceptable if you understand them (a missing `usable.sort(` line is a FAIL, not a WARN: it is the edit that made the grasps work, so your script must contain it).
+Both must end with `0 FAIL` / no problems. Optionally also run the offline tests (they need no robot and no ROS; they take about a minute):
+
+```bash
+bash maintainer/run_offline_tests.sh
+```
+
+`verify_repo.sh` and `check_docs.py` must pass. `WARN` lines are acceptable if you understand them (a missing `usable.sort(` line is a FAIL, not a WARN: it is the edit that made the grasps work, so your script must contain it).
 
 Then **read three things yourself** and correct them if the facts have changed:
 1. The status table in `README.md`.
@@ -58,12 +78,16 @@ Suggested messages (one commit per concern keeps the history readable):
 
 | Package | Changes since the last push |
 |---|---|
-| `nero_mtc_task` | Cartesian approach; continuous place cone; `retime_solution` and direct `execute_task_solution`; candidate tilt filter, sort and `to_tcp_pose`; `GRASP_OFFSET_*`; hang-on-failure fix |
-| `contact_graspnet_ros` | `forward_passes=5`; saves `/tmp/last_depth.npy` and `/tmp/last_segmap.npy` on every detection |
-| `gsam2_ros` | source/target prompts; `box_threshold` |
-| `pose_transform_ros`, `target_pose_ros` | (only if they changed; check `git status`) |
+| `nero_mtc_task` | 2026-10-12 update: straight vertical lift and retreat, smooth joint-space transit, automatic place height with hover and straight descent, 20 degree release cone, `PLACE_OFFSET_*`, `PHASE_SPEED` (earlier: Cartesian approach; continuous place cone; `retime_solution` and direct `execute_task_solution`; candidate tilt filter, sort and `to_tcp_pose`; `GRASP_OFFSET_*`; hang-on-failure fix) |
+| `contact_graspnet_ros` | persistent worker (model loaded once) with automatic fallback; `forward_passes` and `retries_if_empty` parameters; optional re-centring of grasps (`recentre_*`); grasp poses labelled with the depth `camera_info` frame; offline tests |
+| `gsam2_ros` | persistent worker (both prompts in one request, models loaded once) with automatic fallback; offline tests |
+| `target_pose_ros` | plate pose labelled with the depth `camera_info` frame; plate geometry module (`center_mode`, `z_mode`); offline tests |
+| `pose_transform_ros` | (only if it changed; check `git status`) |
 
 If a package has no remote yet, create the repository on GitHub first, then `git remote add origin <url>`.
+
+New since the previous push: the folders `future_work/` and `packages/*/offline_tests/`, the scripts `maintainer/sync_packages_from_workspace.sh` and
+`maintainer/run_offline_tests.sh`, and the documents `docs/11_*` and `docs/12_*`. One commit per concern keeps the history readable (suggested split in section 4).
 
 ## 4. Push this folder to the umbrella repository
 

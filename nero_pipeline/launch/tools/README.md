@@ -17,6 +17,15 @@ Helper and diagnostic tools. None of them is needed to run the pipeline; they ex
 | `find_down_interactive.py` | Tries candidate orientations one at a time on the arm; you answer `y` when the gripper really points straight down | system | Used on the arm; found `(1, 0, 0, 0)` |
 | `find_real_down_orientation.py` | Variant that checks the finger link's own resulting orientation | system | Used during the frame investigation |
 | `adjust_calib_yaw.py` | Rotate the calibration about the vertical axis by N degrees (keeps one backup, `.bak`, overwritten each run) and tells you how to reload it | **system** (needs `yaml`) | Used on the real calibration; re-tested on a sample file (translation unchanged, quaternion stays unit length) |
+| `plate_center_check.py` | Draws each estimate of the plate centre (mean, hull, circle, bbox) on the camera image (`/tmp/plate_center.png`) to tell a mask problem from a calibration problem. Run after `/gsam2/segment` | system | Stand-in tested |
+| `pregrasp_check.py` | The main offline check of a detection (reads `/tmp/grasp_debug.json` written by the watcher after `transform_all`): where each candidate closes relative to the object, fixed shift or scatter, where the camera puts the table, whether the **fingertips** clear it, whether the pregrasp poses are reachable. Flags `--table_z`, `--depth_below_top`, `--tools` | system (needs scipy for the reach part) | Synthetic scenes with known answers; used on real detections |
+| `cgn_openings.py` | Why do the grasps close beside the object? Predicted opening, contact point and closing centre per grasp, grasps closest to the top-face middle, with the pipeline's own settings | conda (`contact_graspnet`) | Stand-in model; used on the lab machine |
+| `cgn_probe.py` | Why does Contact-GraspNet find nothing? Variants on the last detection: repeats, filter off, mask grown, more passes | conda (`contact_graspnet`) | Stand-in model; used on the lab machine |
+| `mask_depth_check.py` | Is the mask (made on the colour image) lined up with the depth image? Slides the mask and scores the overlap; verdict ALIGNED or SHIFTED | system (numpy only) | Synthetic scenes; used on the lab machine |
+| `ik_probe.py` | Which candidates can MoveIt's `/compute_ik` reach from the start pose, in the original and the flipped orientation, with collisions on and off, plus a roll-angle sweep. Takes seconds, no planning | system | Fake IK service. **Not run on the lab machine** |
+| `add_initial_pose.py` | Adds the named arm pose `initial` to the SRDF and a `START_POSE` switch to `move_to_pose_90deg.py` (backups, idempotent, `--joint4` for margin from the joint limit) | system | Run on copies of the repository files, then **applied on the lab machine** (operator report 2026-10-14) |
+| `demo_view.py` | One window with the Grounded-SAM-2 result: pick object left, place target right, kept until the next call. Start it before the pipeline runs | system (OpenCV with GUI) | Layout and update logic with stand-ins. **No run on the lab machine was reported** |
+| `grounded_sam2_inference_timed.py` | The inference script with per-stage timings (imports, model loads, detection, encoder, mask, writing) | conda (`grounded_sam2`) | Stand-in models; used on the lab machine (the measurements in [docs/11](../../docs/11_perception_workers_frames_recentring.md) section 1.1) |
 
 ## Using the grasp watcher and viewer
 
@@ -50,3 +59,19 @@ awk -v th=15 -v dx=-0.08 -v dy=0 -v dz=0 -v px=-0.45 -v pz=0 -f ~/nero_pipeline_
 ```
 
 Note: the formula was tested, but the final calibration values in use were set by hand ([docs/07](../../docs/07_development_log.md) stage 9).
+
+## Typical use of the diagnostics (added 2026-10-14)
+
+Run them right after a detection with the watcher running (the watcher writes `/tmp/grasp_debug.json` after `/pose_transform/transform_all`). Full commands: [docs/12](../../docs/12_current_run_sequence.md).
+
+```bash
+conda deactivate
+source ~/agx_arm_ws/install/setup.bash
+T=$(find -L ~/near-agilex-manipulation-base ~/nero_pipeline_launch -maxdepth 5 -name reach_check.py 2>/dev/null | head -1 | xargs -r dirname)
+/usr/bin/python3 ~/nero_pipeline_launch/tools/pregrasp_check.py --tools "$T" --table_z 0.0 --depth_below_top 0.006
+/usr/bin/python3 ~/nero_pipeline_launch/tools/mask_depth_check.py
+/usr/bin/python3 ~/nero_pipeline_launch/tools/ik_probe.py --start initial
+```
+
+How to read `pregrasp_check.py`: a spread much smaller than the mean shift is a **fixed shift** (look at frames and calibration); a spread as large as the mean is **scatter** (look at the network and the mask).
+Both compare the grasps with the object **inside the same point cloud**, so they cannot see an error that moves both together (hand-eye calibration, table height): use a ruler for that.
