@@ -1,0 +1,22 @@
+# p4-make-core-v1: copies of these pipeline 3 files (md5 of the ORIGINALS); edited: p3_mtc.py (gripper width), p3_go.py (run script)
+d1fee1a024025db52c9557bf0fc09949  add_table_box.py
+52d7a0a5f14b527f94bc04934d866c65  p3_calib_check.py
+bc812744c44fec9a304d9b88c79773f2  p3_fingers.py
+d4209c62f21323c504bd98cc2c0497c6  p3_grasp_view.py
+56d46a9bc864512438850b05974939c8  p3_grasp_watch.py
+9899a3e8f6d9d916da4a26bcc3751da9  p3_graspmolmo_node.py
+db7211b765ce0ebc7d8c629b52025805  p3_graspmolmo_worker.py
+ef7d6822503ef2975605905149106968  p3_jaw_fix.py
+d78a778920614d2558636a9ee1a5f792  p3_jobs.py
+bb770d3aa32627c5a880e1e9c3ca52bf  p3_logfilter.py
+77b20672f16aec4fb68100ea8614afcb  p3_mtc.launch.py
+1a883239306d5595d4497a7138d85120  p3_mtc.py
+7b9466d58316555c4c3f05e07ade0e9f  p3_objects.py
+87340533bfd37c5ea82fdfb250e9e010  p3_obstacles.py
+95e19117a5fc72492bda90c118458ed1  p3_picture.py
+5a7901c7993cffc38eb228a03f918984  p3_scene.py
+47ceef0ca62b2bcd382bcf05dcf2444b  p3_tablez.py
+1f4672b5d8c99e0916036c1aaf4ce29b  p3_go.py
+43f8fe90aa0a977ca5baa32e6db7a24a  p3_geometry.py
+2c8f228f664590ae24a215964abd7d06  worker_client.py
+4b258826218f92f7ccd414feea5d89c9  run_pick_and_place3.sh
