@@ -1,0 +1,79 @@
+# p5-clouds-rviz-v1: fused cloud + pipeline 5 grasp boxes; the raw camera clouds are there but off (tick them to compare)
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+    - Class: rviz_default_plugins/PointCloud2
+      Name: FUSED_blue_top_red_wrist_magenta_both
+      Enabled: true
+      Topic:
+        Value: /p5/fused_points
+        Depth: 1
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Style: Boxes
+      Size (m): 0.01
+      Color Transformer: RGB8
+      Decay Time: 0
+    - Class: rviz_default_plugins/MarkerArray
+      Name: P5_GRASPS_green_G1_yellow_G2G3_red_rejected
+      Enabled: true
+      Topic:
+        Value: /p5/grasp_markers
+        Depth: 1
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+    - Class: rviz_default_plugins/PointCloud2
+      Name: raw_WRIST_D405_red
+      Enabled: false
+      Topic:
+        Value: /camera/armcam/depth/color/points
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Flat Squares
+      Size (m): 0.003
+      Color Transformer: FlatColor
+      Color: 255; 0; 0
+      Decay Time: 0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: raw_TOP_orbbec_blue
+      Enabled: false
+      Topic:
+        Value: /topcam/depth/points
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Flat Squares
+      Size (m): 0.003
+      Color Transformer: FlatColor
+      Color: 0; 120; 255
+      Decay Time: 0
+  Global Options:
+    Fixed Frame: base_link
+    Background Color: 48; 48; 48
+    Frame Rate: 30
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 1.4
+      Focal Point:
+        X: -0.35
+        Y: 0
+        Z: 0

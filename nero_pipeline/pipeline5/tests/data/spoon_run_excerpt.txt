@@ -1,0 +1,44 @@
+>>> STEP 1: Move arm to start pose  (started at 0.0 s)
+[   0.0 s] === 0: moving the arm to the start pose (initial) ===
+[   1.5 s] Already at initial - no movement needed.
+<<< done: Move arm to start pose in 3.0 s
+>>> STEP 2: GraspMolmo: grasp point and object region  (started at 3.0 s)
+[   3.0 s] # 1/4  GraspMolmo: grasp point and object region (about 25 s)
+[  34.5 s] waiting for service to become available...
+[  34.5 s] requester: making request: std_srvs.srv.Trigger_Request()
+[  34.5 s] 
+[  34.5 s] response:
+[  34.5 s] std_srvs.srv.Trigger_Response(success=True, message='grasp px (143,216) object 886 px, table at 0.873 m; GraspMolmo 29.2 s; fingertip clearance 6 mm for a 1.4 cm tall object (40% of its height; rule: 40% of the height, 4 to 15 mm); obstacle reset: MoveIt confirmed 0 obstacle box(es); the place question and the obstacles now run in the background (collected by /graspmolmo/place)')
+<<< done: GraspMolmo: grasp point and object region in 31.5 s
+>>> STEP 3: pipeline 5 grasp step: grasps from GraspMolmo's point  (started at 34.5 s)
+[  41.5 s] std_srvs.srv.Trigger_Response(success=True, message='3 grasp(s) to MoveIt; G1 jaw 70 deg, tilt +0 deg, object 28 mm -> opening 56 mm, fingertips 6 mm above the floor; object 23 mm tall (measured 1-3 cm around the object (-6.5 mm vs the table)); mask: SAM2 proposal #2 (best rated), score 0.90, 1124 px')
+>>> STEP 4: place point and obstacles  (started at 41.5 s)
+[  53.7 s] std_srvs.srv.Trigger_Response(success=True, message='place px (385,303) place disc 116 px; GraspMolmo 18.6 s (ran alongside Contact-GraspNet; waited 9.6 s for it here); 51 obstacle box(es), highest 12.1 cm')
+[  58.0 s] std_srvs.srv.Trigger_Response(success=True, message="GraspMolmo's point fits; release jaw 10 deg fits; SAM2 mask (7392 px); SAM2 container #2, 7392 px, score 0.66")
+[  61.6 s] std_srvs.srv.Trigger_Response(success=True, message="Target pose: position=(0.113, 0.147, 0.834) from 113 pixels, z_mode='floor', center_mode='hull' | plate about 2 cm across")
+>>> STEP 5: pose_transform to base_link  (started at 61.6 s)
+[  64.0 s] std_srvs.srv.Trigger_Response(success=True, message='Grasp in base_link: (-0.367, 0.247, 0.133). Target in base_link: (-0.516, -0.175, 0.027).')
+[  64.0 s] === 2b/3: wrist camera obstacles: 3D boxes at their real height, into MoveIt ===
+[  78.1 s] std_srvs.srv.Trigger_Response(success=True, message="80 wrist box(es) from 334 voxels, between z -0.01 and 0.29 m; left out: 8 noise group(s), 1 group(s) of the object being picked")
+>>> STEP 6: Grasp + place picture  (started at 78.2 s)
+[  78.5 s] p3_picture p3-picture-v10
+[  80.5 s] ====================================================================================================
+[  80.5 s]   PICK     G1 (MTC tries it first): fingers close at x=-0.367 y=+0.247 z=+0.030
+[  81.1 s] PICTURE  /home/near-nero/p3_runs/20261125_114245/grasp_place.png   (title: ...)
+>>> STEP 7: MTC planning  (started at 81.3 s)
+[  82.2 s] [INFO] [launch]: All log files can be found below /home/near-nero/.ros/log/2026-11-25
+[  82.3 s] WARNING:root:Cannot infer SRDF from `/home/near-nero/agx_arm_ws/install/agx_arm_moveit/share/agx_arm_moveit`. -- using config/agx_arm.srdf
+[  84.8 s] [python3-1]   grasp 0: pos=(-0.367, 0.247, 0.133) tilt=0 deg -> USED (GraspMolmo pick)
+[  85.7 s] [python3-1] PIPELINE 5: gripper release: 0.046 m wide - object 36 mm + 10 mm (P5_RELEASE_EXTRA_M)
+[  88.3 s] [python3-1] [WARN] [1795578199.998897194] [moveit_robot_state.cartesian_interpolator]: The computed trajectory is too short to detect jumps in joint-space Need at least 10 steps, only got 6. Try a lower max_step.
+[  88.3 s] [python3-1] [INFO] [1795578200.040395603] [moveit_collision_detection_fcl.collision_common]: Found a contact between 'p3_obst_1' (type 'Object') and 'gripper_link1' (type 'Robot link'), which constitutes a collision. Contact information is not stored.
+[ 120.2 s] [python3-1] Found 26 solution(s).
+[ 130.3 s] [python3-1] Retimed solution: total motion time 22.1 s (arm <= 0.3 rad/s, gripper <= 0.03 m/s)
+[ 130.4 s] [python3-1] PIPELINE 5: plan saved for p5_execute.sh (15 segments)
+[ 131.1 s] (p3_logfilter: hid 213 lines of known harmless MoveIt/OMPL/rcutils noise)
+[  90.4 s] [python3-1] Failing stage(s):
+[  90.4 s] [python3-1] place descend (0/3): CartesianPath: min_fraction not met. Achieved: 0.384615
+[  90.4 s] [python3-1] min_distance not reached (0.0231 < 0.055)
+[  90.4 s] [python3-1] Planning FAILED - no valid solution found across all tried candidates/orientations. Check RViz's MotionPlanning Tasks panel for which stage(s) failed and why.
+[  39.2 s] !!! /p5/grasps FAILED - stopping so the previous detection is not reused
+[  39.1 s] std_srvs.srv.Trigger_Response(success=False, message="NO GRASP: no grasp passed: 250 x pads cover only 9 mm of the object; 250 x pads cover only 4 mm of the object; 75 x object 80 mm wide + 20 mm margin > the gripper's 100 mm (fused cloud: 11156 voxels; snapshot /x.npz)")

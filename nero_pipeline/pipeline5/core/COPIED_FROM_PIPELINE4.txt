@@ -1,0 +1,50 @@
+# p5-make-bundle-v1: pipeline 5's copies of pipeline 4 v10 (branch pipeline4). md5 of the ORIGINALS; then md5 of the copies as shipped.
+# edited: core/p3_mtc.py (opening file), core/p3_go.py (run script), core/p3_picture.py (clearance, report file),
+#         p5_fuse_node.py (own names, /p5/mask_source, keep-out corridor, voxel means), core/p3_mtc.py also: exact approach, p5_run.sh (/p5/grasps instead of Contact-GraspNet, own paths), tests (imports)
+d1fee1a024025db52c9557bf0fc09949  core/add_table_box.py
+52d7a0a5f14b527f94bc04934d866c65  core/p3_calib_check.py
+bc812744c44fec9a304d9b88c79773f2  core/p3_fingers.py
+43f8fe90aa0a977ca5baa32e6db7a24a  core/p3_geometry.py
+b8fe74e7e131d2d2646983ce685f396a  core/p3_go.py
+9899a3e8f6d9d916da4a26bcc3751da9  core/p3_graspmolmo_node.py
+db7211b765ce0ebc7d8c629b52025805  core/p3_graspmolmo_worker.py
+d78a778920614d2558636a9ee1a5f792  core/p3_jobs.py
+bb770d3aa32627c5a880e1e9c3ca52bf  core/p3_logfilter.py
+77b20672f16aec4fb68100ea8614afcb  core/p3_mtc.launch.py
+bee092f4959e7e0125ae902154624bbe  core/p3_mtc.py
+87340533bfd37c5ea82fdfb250e9e010  core/p3_obstacles.py
+95e19117a5fc72492bda90c118458ed1  core/p3_picture.py
+5a7901c7993cffc38eb228a03f918984  core/p3_scene.py
+47ceef0ca62b2bcd382bcf05dcf2444b  core/p3_tablez.py
+2c8f228f664590ae24a215964abd7d06  core/worker_client.py
+aa83d7c93a4db182b67449be207a6cdb  p4_fuse_node.py -> p5_fuse_node.py
+d520c59d9acc0b456f25be6bfe333828  p4_wrist_obstacles.py -> p5_wrist_obstacles.py
+7eed9cdfe100b17674fdf10545ec856a  p4_run.sh -> p5_run.sh
+f47431df4eea82a1a5b498b62297b882  tests/test_p4_fuse.py -> tests/test_p5_fuse.py
+ec73c1f4858530dbd7036557d383a9de  tests/test_p4_wrist.py -> tests/test_p5_wrist.py
+# 7g/7i: core/p3_mtc.py edited after the copy: _p5_release_width (release opening), P5_DESCEND_MIN_M (lowering may stop early)
+# 7j: core/p3_graspmolmo_node.py edited after the copy: no stop on a small own region (SAM2 decides); picture A for the live window
+# 8b: core/p3_go.py edited after the copy: the concise terminal (Brief; P5_VERBOSE=1 = everything)
+# 8e: core/p3_mtc.py: ARM_MAX_VEL from P5_ARM_MAX_VEL (default 0.5 rad/s, was 0.3)
+# shipped:
+d1fee1a024025db52c9557bf0fc09949  core/add_table_box.py
+52d7a0a5f14b527f94bc04934d866c65  core/p3_calib_check.py
+bc812744c44fec9a304d9b88c79773f2  core/p3_fingers.py
+43f8fe90aa0a977ca5baa32e6db7a24a  core/p3_geometry.py
+3dd7d9eb7ab810900331549fdfadde90  core/p3_go.py
+240e2cb4809341455045b05b5c238a2c  core/p3_graspmolmo_node.py
+db7211b765ce0ebc7d8c629b52025805  core/p3_graspmolmo_worker.py
+d78a778920614d2558636a9ee1a5f792  core/p3_jobs.py
+bb770d3aa32627c5a880e1e9c3ca52bf  core/p3_logfilter.py
+77b20672f16aec4fb68100ea8614afcb  core/p3_mtc.launch.py
+e20c51bc2b491816cfd020c4ce5729b3  core/p3_mtc.py
+87340533bfd37c5ea82fdfb250e9e010  core/p3_obstacles.py
+8beb28fbd384375abdea863a31beefdd  core/p3_picture.py
+5a7901c7993cffc38eb228a03f918984  core/p3_scene.py
+47ceef0ca62b2bcd382bcf05dcf2444b  core/p3_tablez.py
+2c8f228f664590ae24a215964abd7d06  core/worker_client.py
+a28d522b840484e197b3723303739887  p5_fuse_node.py
+3a4a49ca81c2f20db28596dfea8ef02c  p5_run.sh
+d520c59d9acc0b456f25be6bfe333828  p5_wrist_obstacles.py
+195f48765ccd677087e22a7a0725b5cc  tests/test_p5_fuse.py
+75326b4f0c68ce23db3403e00a132dab  tests/test_p5_wrist.py

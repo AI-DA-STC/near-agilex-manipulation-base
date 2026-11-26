@@ -1,0 +1,12 @@
+PIPELINE 5 - 8e = 8d + ONE change: the pipeline's arm moves at 0.5 rad/s per joint (was 0.3; P5_ARM_MAX_VEL)
+p5_scene_objects.py    p5-scene-objects-v2  v2: camera box beside the gripper, re-attached every look | v1: object in hand + camera box
+p5_gripper.py          p5-gripper-v5        v5: camera box at tcp_link +x (calibration: camera at +89, -14, +22 mm) | v4: wrong side
+p5_grasp_core.py       p5-grasp-core-v8     v8: top-camera points = columns; camera checked on both sides | v7: jaws off-centre up to 8 mm; fused margin 3 mm | v6: 5/10 mm higher grasps, corner 1 mm, centring 40 mm, blocking points
+p5_place_core.py       p5-place-core-v3     v3: the camera's footprint where it really is
+p5_grasp_node.py       p5-grasp-node-v6b    v6b: SAM2 best-rated (7f) | v6: SAM2 = the whole object (largest usable, score >= 0.3) | v5: object + camera into MoveIt
+core/p3_mtc.py         + gripper-object contact allowed (by LINK name - pipeline 3's 'gripper' string never applied) before opening; + saves the plan; + exact approach
+p5_go.sh p5-go-v1 | p5_plan.sh p5-plan-v2 | p5_execute.sh p5-execute-v2 | p5_replan.sh p5-replan-v1 | p5_exec_plan.py p5-exec-plan-v2
+p5_view.py p5-view-v1d (fallback, --test, redraws only on visible change) | p5_replay.py p5-replay-v2 (opens its picture; red rings = what blocked a finger) | p5_tidy.py p5-tidy-v1 | p5_keepout.py p5-keepout-v1 | p5_fuse_node.py + voxel MEANS (points on the surface) | p5_sam2_worker.py p5-sam2-worker-v1
+start_pipeline5.sh p5-start-v6f (Ctrl+C: 10 s then forced) | p5_clean.sh p5-clean-v2f (+ p5_view) | p5_run.sh p5-run-v1 (+ /p5/place)
+install_pipeline5.sh   p5-install-v12f
+NEXT: step 8 wrist-camera takeover (GraspMolmo + SAM2 on the wrist image when the top look fails); then speed
