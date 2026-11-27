@@ -10,3 +10,5 @@ p5_view.py p5-view-v1d (fallback, --test, redraws only on visible change) | p5_r
 start_pipeline5.sh p5-start-v6f (Ctrl+C: 10 s then forced) | p5_clean.sh p5-clean-v2f (+ p5_view) | p5_run.sh p5-run-v1 (+ /p5/place)
 install_pipeline5.sh   p5-install-v12f
 NEXT: step 8 wrist-camera takeover (GraspMolmo + SAM2 on the wrist image when the top look fails); then speed
+p5 remote (P5_REMOTE=1, step 2): remote/p5_remote_worker.py p5-remote-worker-v2 | laptop p5_server.py p5-server-v2 | start_pipeline5.sh p5-start-v8b | p5_grasp_node.py p5-grasp-node-v6f | p5-remote-patch-v1
+p5 speed round 1 (p5-speed-patch-v1): p5_run.sh p5-run-v2 (P5_EARLY_WRIST=1) | core/p3_mtc.py p5-mtc-v1j (P5_MTC_MAX_SOLUTIONS) | p5_fuse_node.py p5-fuse-v2 (place guard + wrist timing)

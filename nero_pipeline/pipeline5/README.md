@@ -1,4 +1,4 @@
-]633;E;echo "# MoSAIC-DUO: Modular Skills for Adaptive Interpretable manipulation Control with Dual-camera Unified Observation";7227ef25-09d5-4ba5-868b-a1f546c714e8]633;C# MoSAIC-DUO: Modular Skills for Adaptive Interpretable manipulation Control with Dual-camera Unified Observation
+# MoSAIC-DUO: Modular Skills for Adaptive Interpretable manipulation Control with Dual-camera Unified Observation
 
 Pipeline 5 of the AgileX Nero manipulation stack (PIPELINE 5 - 8e = 8d + ONE change: the pipeline's arm moves ).
 
@@ -64,3 +64,9 @@ OWN FILES: ~/.p5_offsets.yaml (camera offsets), ~/p3_runs/p5_grasp_latest.json, 
 SHARED WITH EVERY PIPELINE: ~/nero_pipeline_launch/scripts, the calibrations, ~/.p3_table_z, the ROS workspace, ~/p3_runs/latest (GraspMolmo's run)
 TESTS: bash ~/nero_pipeline_launch/pipeline5/tests/run_tests.sh
 ```
+
+## Speed-ups (27 Nov): laptop GPU + parallel steps
+- `P5_REMOTE=1 bash start_pipeline5.sh`: GraspMolmo + SAM2 run on the laptop GPU (`laptop_server/start_server.sh`, cable 10.10.0.1 first, then Wi-Fi); the Jetson's own models are used automatically if the laptop does not answer. GraspMolmo 27.5 s -> 4.3 s (grasp), 17.0 s -> 2.4 s (place).
+- `P5_EARLY_WRIST=1`: the wrist-camera boxes start right after /p5/place, alongside pose_transform.
+- `P5_MTC_MAX_SOLUTIONS=N`: MTC stops after N solutions (default 100 with two orientations).
+- One plan (eggplant -> basket): 143.8 s (Jetson only) -> 69.2 s (laptop models, early wrist boxes, MTC cap 10, arm at start pose).

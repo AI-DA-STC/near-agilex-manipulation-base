@@ -43,7 +43,7 @@ import p5_keepout  # noqa: E402
 import p5_place_core as PC  # noqa: E402
 import p5_scene_objects as SO  # noqa: E402
 
-P5_NODE_VERSION = "p5-grasp-node-v6e"   # 8d: three pictures in the same window: GraspMolmo, SAM2 + place, grasps | 8c: the picture window is reused (stays where dragged) | 8a: one picture pops up per look (after the place step; at the grasp step if it fails) |   # v6b (7f): SAM2 = its BEST-rated usable proposal - the ONLY change from 7e
+P5_NODE_VERSION = "p5-grasp-node-v6f"   # v6f: P5_REMOTE=1: SAM2 on the laptop (remote/p5_remote_sam2.py), local fallback |   # 8d: three pictures in the same window: GraspMolmo, SAM2 + place, grasps | 8c: the picture window is reused (stays where dragged) | 8a: one picture pops up per look (after the place step; at the grasp step if it fails) |   # v6b (7f): SAM2 = its BEST-rated usable proposal - the ONLY change from 7e
 # v6: v6: SAM2: the WHOLE object (largest usable proposal, score >= 0.3), not a tiny piece
 # v5: v5: the object in hand (carrot) and the wrist camera box go into MoveIt's scene
 # v4: v4: /p5/place - the place point moved to where the gripper fits, top boxes rebuilt around it
@@ -435,14 +435,14 @@ def main():
                 repo = os.path.expanduser(os.environ.get("P5_SAM2_REPO", "~/near-agilex-manipulation-base/external/Grounded-SAM-2"))
                 model = os.environ.get("P5_SAM2_MODEL", "large")
                 self.sam = Worker(["conda", "run", "-n", os.environ.get("P5_SAM2_ENV", "grounded_sam2"), "--no-capture-output", "python", "-u",
-                                   os.path.join(HERE, "p5_sam2_worker.py"), "--model", model, "--repo", repo],
+                                   (os.path.join(HERE, "remote", "p5_remote_sam2.py") if os.environ.get("P5_REMOTE", "0") == "1" else os.path.join(HERE, "p5_sam2_worker.py")), "--model", model, "--repo", repo],
                                   cwd=repo, log=lambda m: self.get_logger().info(m), startup_timeout=300.0)
                 self.sam_state = "loading (SAM2.1 %s)" % model
 
                 def warm():
                     try:
                         self.sam.start()
-                        self.sam_state = "ready (SAM2.1 %s)" % model
+                        self.sam_state = "ready (SAM2.1 %s%s)" % (model, " on the laptop" if (self.sam.ready_info or {}).get("remote") else "")
                         self.get_logger().info("sam2 worker ready: %s" % self.sam.ready_info)
                     except WorkerError as e:
                         self.sam_state = "FAILED to start: %s" % e

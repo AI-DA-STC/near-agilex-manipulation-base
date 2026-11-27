@@ -19,7 +19,8 @@ a ROS parameter overrides it, e.g.  /usr/bin/python3 p4_fuse_node.py --ros-args 
 """
 import numpy as np
 
-VERSION = "p5-fuse-v1"   # PIPELINE 5 copy of p4-fuse-v5: own names /p5/..., p5_wrist_* boxes, ~/.p5_offsets.yaml, ~/p5_runs
+VERSION = "p5-fuse-v2"   # v2: waits for THIS look's place region (P5_EARLY_WRIST=1), wrist timing in the message
+# p5-fuse-v1:   # PIPELINE 5 copy of p4-fuse-v5: own names /p5/..., p5_wrist_* boxes, ~/.p5_offsets.yaml, ~/p5_runs
 # p4-fuse-v5:   # v5: pipeline 3 parts from pipeline4/core (independent of pipeline 3)
 # v4:   # v4: default camera offsets from ~/.p4_offsets.yaml (ROS parameters still override)
 # v3: camera messages never wait behind the slow fusion cycle (top cloud went stale); cheaper arm filter; cloud ages in the log
@@ -366,6 +367,13 @@ def main():
                 if k not in self.last:
                     return False, ("REFUSED: no %s yet. Keep this node running and run p4_look.sh (GraspMolmo publishes its masks once per look)"
                                    % why if k.startswith("mask") else "REFUSED: no %s yet - is the top camera running?" % why)
+            t0 = time.time()   # PIPELINE 5 speed (p5-fuse-v2): THIS look's place region must be here (P5_EARLY_WRIST=1 calls right after /p5/place)
+            while self.last.get("mask_target_time", 0.0) < self.last.get("mask_source_time", 0.0) and time.time() - t0 < 5.0:
+                time.sleep(0.05)
+            if self.last.get("mask_target_time", 0.0) < self.last.get("mask_source_time", 0.0):
+                return False, ("REFUSED: the place region (/p5/mask_target) is older than this look's object region - "
+                               "/p5/place has not published this look's place yet")
+            t_wait = time.time() - t0
             with self.lock:
                 clouds = list(self.wrist_q)
             if not clouds:
@@ -402,12 +410,15 @@ def main():
                 return False, "REFUSED: no TF for any wrist cloud (is p4_wrist_up.sh's calibration publisher running?)"
             Pw = np.concatenate(parts)
             Pw, ko_note = p5_keepout.apply_latest(Pw, self.last.get("mask_source_time"))   # PIPELINE 5: corridor left out
+            t_clouds = time.time()
             self.get_logger().info(ko_note)
             boxes, note = W.wrist_boxes(Pw, tz, tbox, place)
+            t_boxes = time.time()
             note["keepout"] = ko_note
             ok, scene_note = self.scene.set_obstacles(boxes)
+            t_scene = time.time()
             age = time.time() - min(self.last["mask_source_time"], self.last["mask_target_time"])
-            msg = "%s; %s; %s; masks from the look %.0f s ago; %d wrist cloud(s), table z %+.1f mm" % (
+            msg = ("[wrist %.1f s: wait %.1f, clouds %.1f, boxes %.1f, MoveIt %.1f] " % (t_scene - t0, t_wait, t_clouds - t0 - t_wait, t_boxes - t_clouds, t_scene - t_boxes)) + "%s; %s; %s; masks from the look %.0f s ago; %d wrist cloud(s), table z %+.1f mm" % (
                 W.describe(boxes, note), ko_note, scene_note, age, len(parts), 1000 * tz)
             self._save(boxes, note, tbox, place, tz, msg)
             return ok, msg

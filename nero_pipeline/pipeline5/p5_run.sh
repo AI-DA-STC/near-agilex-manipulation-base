@@ -20,7 +20,7 @@ call_checked() { out=$(ros2 service call "$1" std_srvs/srv/Trigger 2>&1); echo "
 
 set -e
 P3_RUN_VERSION="p3-run-v8"
-P5_RUN_VERSION="p5-run-v1"   # PIPELINE 5: Contact-GraspNet replaced by /p5/grasps; own core/ and wrist step (copy of p4-run-v1)
+P5_RUN_VERSION="p5-run-v2"   # v2: P5_EARLY_WRIST=1 starts the wrist boxes right after /p5/place, in the background |   # PIPELINE 5: Contact-GraspNet replaced by /p5/grasps; own core/ and wrist step (copy of p4-run-v1)
 echo "p5_run $P5_RUN_VERSION"
 echo "run_pick_and_place3 $P3_RUN_VERSION"
 case "${1:-}" in
@@ -63,6 +63,15 @@ fi
 if echo "$out" | grep -q "success=False"; then echo "!!! /graspmolmo/place FAILED - stopping so the previous detection is not reused"; exit 1; fi
 # PIPELINE 5: the place point moved to where the gripper fits (SAM2 container), top-camera boxes rebuilt around it -> /p5/mask_target
 call_checked /p5/place
+# PIPELINE 5 speed (p5-run-v2): P5_EARLY_WRIST=1 starts the wrist boxes NOW (their last input, the place region, exists from here on), in the
+# background alongside the target pose and pose_transform; they are collected and checked below, where they used to run.
+P5_WRIST_BG=""
+if [ "${P5_EARLY_WRIST:-0}" = 1 ] && [ "${P4_WRIST:-on}" != off ]; then
+    P5_WRIST_OUT=$(mktemp /tmp/p5_wrist_early_XXXXXX.txt)
+    ros2 service call /p5/wrist_obstacles std_srvs/srv/Trigger > "$P5_WRIST_OUT" 2>&1 &
+    P5_WRIST_BG=$!
+    echo "--- wrist camera boxes started in the background (P5_EARLY_WRIST=1)"
+fi
 call_checked /target_pose/extract
 
 echo ""
@@ -73,7 +82,15 @@ call_checked /pose_transform/transform_all
 echo ""
 if [ "${P4_WRIST:-on}" != off ]; then
 echo "=== 2b/3: wrist camera obstacles: 3D boxes at their real height, into MoveIt ==="
+if [ -n "${P5_WRIST_BG:-}" ]; then
+    P5_WRIST_RC=0; wait "$P5_WRIST_BG" || P5_WRIST_RC=$?
+    out=$(cat "$P5_WRIST_OUT"); rm -f "$P5_WRIST_OUT"; echo "$out"
+    if [ "$P5_WRIST_RC" != 0 ] || echo "$out" | grep -q "success=False" || ! echo "$out" | grep -q "success=True"; then
+        echo "!!! /p5/wrist_obstacles FAILED (started early, P5_EARLY_WRIST=1) - stopping so the previous detection is not reused"; exit 1
+    fi
+else
 call_checked /p5/wrist_obstacles
+fi
 else
 echo "=== 2b/3: P4_WRIST=off: wrist obstacle boxes removed (top camera only) ==="
 call_checked /p5/clear_wrist_obstacles

@@ -79,7 +79,7 @@ and executes the task.
 P3_MTC_VERSION = "p3-mtc-v3"
 
 P4_MTC_VERSION = "p4-mtc-v1"
-P5_MTC_VERSION = "p5-mtc-v1i"   # 7i: the lowering may stop early (>= 1 cm) and release there | 7g: release opening = object + 1 cm   # PIPELINE 5 copy: the opening comes from ~/p3_runs/p5_grasp_latest.json   # PIPELINE 4 core copy: the gripper opens only as wide as the grasp step says (p4_make_core.py)
+P5_MTC_VERSION = "p5-mtc-v1j"   # 7j: P5_MTC_MAX_SOLUTIONS caps the search (default 50/100 as before) |   # 7i: the lowering may stop early (>= 1 cm) and release there | 7g: release opening = object + 1 cm   # PIPELINE 5 copy: the opening comes from ~/p3_runs/p5_grasp_latest.json   # PIPELINE 4 core copy: the gripper opens only as wide as the grasp step says (p4_make_core.py)
 
 
 def _p4_open_width():
@@ -1098,7 +1098,9 @@ def build_and_run_task(grasp_candidates, target_pose):
           f"transit {'joint interpolation first' if TRANSIT_JOINT_INTERP_FIRST else 'planner only'}")
     print("Planning...")
 
-    if task.plan(50 if len(orientation_variants()) == 1 else 100):
+    _p5_max = int(_os.environ.get("P5_MTC_MAX_SOLUTIONS", "0") or 0) or (50 if len(orientation_variants()) == 1 else 100)   # PIPELINE 5 speed (7j)
+    print(f"MTC: stops after {_p5_max} solution(s)" + (" (P5_MTC_MAX_SOLUTIONS)" if _os.environ.get("P5_MTC_MAX_SOLUTIONS") else " (default)"))
+    if task.plan(_p5_max):
         print(f"Found {len(task.solutions)} solution(s).")
         chosen_index = choose_solution(task.solutions)
         chosen_solution = task.solutions[chosen_index]

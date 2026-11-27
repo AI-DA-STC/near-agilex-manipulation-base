@@ -8,7 +8,7 @@
 #   grasp switches: P5_MAX_TILT_DEG P5_OPEN_MARGIN_M P5_GRASPS_TO_MOVEIT P5_OFFSET_M P5_CLOUD_CHECK P5_TIP_CLEARANCE P5_MASK P5_SAM2_MODEL (README.txt).
 # Uses only pipeline5/ (its own copies). Shared with every pipeline: ~/nero_pipeline_launch/scripts (arm launch, start pose, table),
 # the calibrations, ~/.p3_table_z, the ROS workspace.
-P5_START_VERSION="p5-start-v8a"   # 8a: no live window; one picture pops up per look |   # v6f (7f): Ctrl+C stops for sure (10 s, then forced)
+P5_START_VERSION="p5-start-v8b"   # 8b: P5_REMOTE=1 runs GraspMolmo + SAM2 on the laptop (remote/README.txt) |   # 8a: no live window; one picture pops up per look |   # v6f (7f): Ctrl+C stops for sure (10 s, then forced)
 # v6: the live window "Pipeline 5"; its picture folder (/tmp/p5_view) is deleted on Ctrl+C
 # v5: v5: target_pose reads /p5/mask_target (the place point after /p5/place)
 # v4: v4: CAN = link check before launch + the arm must publish /feedback/joint_states after it
@@ -124,8 +124,23 @@ start "armcam" ros2 launch realsense2_camera rs_launch.py camera_name:=armcam en
   done; echo "wrist camera node never came up" ) > "$LOG_DIR/armcam_cloud_on.log" 2>&1 &
 
 # --- perception: GraspMolmo, target, pipeline 5's grasp node (instead of Contact-GraspNet), pose_transform ---
+# PIPELINE 5 remote (p5-start-v8b): P5_REMOTE=1 -> GraspMolmo and SAM2 run on the laptop GPU (p5_server.py); the Jetson's own models
+# are used automatically if no laptop server answers. Server order: P5_SERVER (comma list), default the cable first, then Wi-Fi.
+P5_GM_REMOTE_ARGS=""
+if [ "${P5_REMOTE:-0}" = "1" ]; then
+  export P5_REMOTE=1
+  export P5_SERVER="${P5_SERVER:-http://10.10.0.1:8765,http://192.168.10.146:8765}"
+  P5_GM_REMOTE_ARGS="-p worker_script:=$D/remote/p5_remote_graspmolmo.py"
+  P5_UP=""
+  for p5s in ${P5_SERVER//,/ }; do
+    p5h="$(curl -s -m 2 "$p5s/health" 2>/dev/null || true)"
+    case "$p5h" in *'"ok":true'*|*'"ok": true'*) P5_UP="$p5s"; break ;; esac
+  done
+  if [ -n "$P5_UP" ]; then echo "  REMOTE  GraspMolmo + SAM2 on the laptop GPU: $P5_UP"
+  else echo "  REMOTE  WARNING: no laptop server answers ($P5_SERVER) - the Jetson's local models will be used (slower)"; fi
+fi
 start "graspmolmo" /usr/bin/python3 "$C/p3_graspmolmo_node.py" --ros-args \
-    -p source_prompt:="${P5_SOURCE:-eggplant}" -p target_prompt:="${P5_TARGET:-basket}" -p dtype:="${P3_GM_DTYPE:-bf16}"
+    -p source_prompt:="${P5_SOURCE:-eggplant}" -p target_prompt:="${P5_TARGET:-basket}" -p dtype:="${P3_GM_DTYPE:-bf16}" $P5_GM_REMOTE_ARGS
 sleep 3
 start "target_pose_ros" ros2 launch target_pose_ros targetpose.launch.py mask_topic:=/p5/mask_target
 sleep 2
